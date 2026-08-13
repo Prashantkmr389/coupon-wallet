@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Coupon Wallet</title>
+<meta name="description" content="Every coupon you were given, kept until you actually need it.">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1B2430">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg:#1B2430;
+    --bg-2:#232D3B;
+    --paper:#F6F1E4;
+    --ink:#241F16;
+    --ink-soft:#5B5344;
+    --active:#2F6E56;
+    --soon:#B4791F;
+    --expired:#8B8578;
+    --danger:#B4362E;
+    --paper-muted:rgba(246,241,228,0.66);
+    --divider:rgba(36,31,22,0.22);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg); color:var(--paper);
+    font-family:'IBM Plex Sans',sans-serif;
+    min-height:100vh;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  [hidden]{ display:none !important; }
+  #app{ max-width:660px; margin:0 auto; padding:0 16px 110px; }
+  button{ font-family:inherit; }
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+    outline:2px solid var(--soon); outline-offset:2px;
+  }
+
+  /* header */
+  .shell{ padding:26px 0 14px; }
+  .shell-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .shell-top h1{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:25px; letter-spacing:-0.01em; margin:0; }
+  .tagline{ margin:4px 0 0; font-size:12.5px; color:var(--paper-muted); max-width:42ch; line-height:1.45; }
+  .add-btn{
+    flex:none; background:var(--paper); color:var(--ink); border:none; border-radius:8px;
+    padding:10px 14px; font-weight:600; font-size:13px; cursor:pointer; white-space:nowrap;
+  }
+  .add-btn:hover{ background:#EDE6D3; }
+  .stats{ margin:14px 0 0; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--paper-muted); }
+  .stats strong{ color:var(--paper); font-weight:600; }
+  .stats .warn{ color:var(--soon); font-weight:600; }
+
+  .util-row{ display:flex; gap:14px; margin-top:12px; flex-wrap:wrap; }
+  .link-btn{
+    background:none; border:none; padding:0; color:var(--paper-muted);
+    font-size:12px; text-decoration:underline; cursor:pointer;
+  }
+  .link-btn:hover{ color:var(--paper); }
+
+  /* controls */
+  .controls{ margin-top:18px; }
+  #searchInput{
+    width:100%; background:var(--bg-2); border:1px solid rgba(246,241,228,0.15);
+    color:var(--paper); border-radius:9px; padding:11px 13px; font-size:14px;
+  }
+  #searchInput::placeholder{ color:rgba(246,241,228,0.4); }
+  .chip-row{ display:flex; gap:8px; overflow-x:auto; margin-top:10px; padding-bottom:4px; scrollbar-width:none; }
+  .chip-row::-webkit-scrollbar{ display:none; }
+  .chip{
+    flex:none; background:transparent; border:1px solid rgba(246,241,228,0.25);
+    color:var(--paper-muted); border-radius:99px; padding:6px 12px; font-size:12.5px;
+    cursor:pointer; white-space:nowrap;
+  }
+  .chip.is-active{ background:var(--paper); color:var(--ink); border-color:var(--paper); font-weight:600; }
+
+  /* sections */
+  .section-head{
+    margin:26px 0 12px; font-family:'IBM Plex Mono',monospace; font-size:11px;
+    letter-spacing:0.14em; text-transform:uppercase; color:var(--paper-muted);
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-head::after{ content:""; flex:1; height:1px; background:rgba(246,241,228,0.15); }
+  .section-head.urgent{ color:var(--soon); }
+
+  .empty{ text-align:center; padding:52px 20px; color:var(--paper-muted); }
+  .empty h2{ font-family:'Space Grotesk',sans-serif; color:var(--paper); font-size:18px; margin:0 0 8px; }
+  .empty p{ font-size:13.5px; line-height:1.55; margin:0 0 18px; }
+
+  /* ticket */
+  .ticket{
+    position:relative; display:flex; background:var(--paper); color:var(--ink);
+    border-radius:14px; margin:0 0 20px;
+    box-shadow:0 1px 0 rgba(0,0,0,0.25), 0 10px 20px -14px rgba(0,0,0,0.6);
+  }
+  .ticket::before,.ticket::after{
+    content:""; position:absolute; width:22px; height:22px; background:var(--bg);
+    border-radius:50%; z-index:2; top:50%; transform:translateY(-50%);
+  }
+  .ticket::before{ left:-11px; }
+  .ticket::after{ right:-11px; }
+  .stamp{
+    position:absolute; top:14px; right:16px; font-family:'IBM Plex Mono',monospace;
+    font-size:10px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase;
+    padding:3px 8px; border:2px solid currentColor; border-radius:4px;
+    transform:rotate(-8deg); z-index:3; background:var(--paper);
+  }
+  .status-active .stamp{ color:var(--active); }
+  .status-soon .stamp{ color:var(--soon); }
+  .status-expired .stamp{ color:var(--expired); }
+  .is-used .stamp{ color:var(--expired); }
+  .is-used,.status-expired.ticket:not(.is-used){ opacity:0.6; }
+  .is-used .brand{ text-decoration:line-through; }
+
+  .stub{
+    width:130px; flex:0 0 130px; padding:18px 14px; display:flex; flex-direction:column;
+    align-items:flex-start; gap:10px; border-right:2px dashed var(--divider);
+  }
+  .stub-label{ font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-soft); font-weight:600; }
+  .code-btn{ background:none; border:none; padding:0; display:flex; align-items:center; gap:6px; cursor:pointer; color:inherit; text-align:left; }
+  .code{ font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:14px; word-break:break-all; }
+  .code-btn svg{ flex:none; width:14px; height:14px; opacity:0.5; }
+  .code-btn:hover svg{ opacity:1; }
+
+  .details{ flex:1; min-width:0; padding:18px 18px 14px; display:flex; flex-direction:column; gap:6px; }
+  .details-top{ padding-right:78px; }
+  .brand{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:16px; margin:0 0 3px; }
+  .meta-line{ font-size:11px; color:var(--ink-soft); font-weight:500; }
+  .discount{ margin:0; font-size:13.5px; line-height:1.4; }
+  .notes{ margin:0; font-size:12px; color:var(--ink-soft); line-height:1.45; }
+  .badge{
+    display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:10px;
+    border:1px solid var(--divider); border-radius:4px; padding:1px 5px; margin-left:6px;
+    color:var(--ink-soft); letter-spacing:0.04em;
+  }
+  .details-bottom{ margin-top:6px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .days-left{ font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; }
+  .status-active .days-left{ color:var(--active); }
+  .status-soon .days-left{ color:var(--soon); }
+  .status-expired .days-left,.is-used .days-left{ color:var(--expired); }
+  .actions{ display:flex; gap:6px; flex:none; }
+  .icon-btn{
+    background:none; border:1px solid var(--divider); border-radius:7px; padding:6px;
+    display:flex; cursor:pointer; color:var(--ink-soft);
+  }
+  .icon-btn:hover{ color:var(--ink); border-color:var(--ink-soft); }
+  .icon-btn svg{ width:15px; height:15px; }
+  a.icon-btn{ text-decoration:none; }
+
+  @media (max-width:560px){
+    .ticket{ flex-direction:column; }
+    .ticket::before{ left:50%; top:-11px; transform:translateX(-50%); }
+    .ticket::after{ left:50%; top:auto; bottom:-11px; transform:translateX(-50%); }
+    .stub{
+      width:auto; flex:none; flex-direction:row; align-items:center; justify-content:space-between;
+      border-right:none; border-bottom:2px dashed var(--divider); padding:14px 16px;
+    }
+    .details-top{ padding-right:66px; }
+  }
+
+  /* modal */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(10,14,20,0.62); display:flex;
+    align-items:flex-end; justify-content:center; z-index:30;
+  }
+  @media (min-width:560px){ .modal-backdrop{ align-items:center; padding:20px; } }
+  .modal{
+    background:var(--paper); color:var(--ink); width:100%; max-width:490px;
+    border-radius:18px 18px 0 0; padding:22px 20px calc(26px + env(safe-area-inset-bottom));
+    max-height:90vh; overflow-y:auto;
+  }
+  @media (min-width:560px){ .modal{ border-radius:16px; } }
+  .modal h2{ font-family:'Space Grotesk',sans-serif; font-size:19px; margin:0 0 4px; }
+  .modal .modal-sub{ font-size:12.5px; color:var(--ink-soft); margin:0 0 16px; line-height:1.45; }
+  form label{ display:block; font-size:12.5px; font-weight:600; color:var(--ink-soft); margin-bottom:12px; }
+  form input,form select,form textarea{
+    display:block; width:100%; margin-top:5px; font-family:'IBM Plex Sans',sans-serif; font-size:14px;
+    padding:9px 11px; border:1px solid rgba(36,31,22,0.25); border-radius:8px; background:#fff; color:var(--ink);
+  }
+  form textarea{ resize:vertical; }
+  .hint{ font-weight:400; font-size:11px; color:var(--ink-soft); opacity:0.85; }
+  .row2{ display:flex; gap:12px; }
+  .row2>label{ flex:1; min-width:0; }
+  .check-label{ display:flex; align-items:flex-start; gap:9px; font-size:12.5px; font-weight:500; color:var(--ink); margin-bottom:14px; }
+  .check-label input{ width:auto; margin:2px 0 0; flex:none; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:6px; }
+  .btn{ font-weight:600; font-size:13.5px; padding:10px 16px; border-radius:8px; border:none; cursor:pointer; }
+  .btn.ghost{ background:none; color:var(--ink-soft); }
+  .btn.primary{ background:var(--ink); color:var(--paper); }
+  .btn.danger{ background:var(--danger); color:#fff; }
+  .form-error{ background:rgba(180,54,46,0.1); border:1px solid rgba(180,54,46,0.35); color:var(--danger);
+    font-size:12.5px; padding:9px 11px; border-radius:8px; margin-bottom:14px; line-height:1.45; }
+
+  /* toast */
+  .toast{
+    position:fixed; left:50%; bottom:calc(22px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    background:var(--paper); color:var(--ink); padding:11px 16px; border-radius:10px; font-size:13px;
+    display:flex; align-items:center; gap:12px; box-shadow:0 10px 24px -8px rgba(0,0,0,0.55);
+    z-index:40; font-weight:500; max-width:calc(100% - 32px);
+  }
+  .toast button{ background:none; border:none; font-weight:700; color:var(--soon); cursor:pointer; font-size:13px; }
+
+  @media (prefers-reduced-motion:no-preference){
+    .modal{ animation:slideUp .18s ease-out; }
+    .toast{ animation:fadeUp .18s ease-out; }
+  }
+  @keyframes slideUp{ from{ transform:translateY(24px); opacity:.6 } to{ transform:none; opacity:1 } }
+  @keyframes fadeUp{ from{ transform:translate(-50%,10px); opacity:0 } to{ transform:translateX(-50%); opacity:1 } }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header class="shell">
+    <div class="shell-top">
+      <div>
+        <h1>Coupon Wallet</h1>
+        <p class="tagline">Every coupon Cred, GPay, Paytm and the rest handed you — kept until you actually need it.</p>
+      </div>
+      <button id="addBtn" class="add-btn">+ Add coupon</button>
+    </div>
+    <p id="stats" class="stats"></p>
+    <div class="util-row">
+      <button id="exportBtn" class="link-btn">Export backup</button>
+      <button id="importBtn" class="link-btn">Import backup</button>
+      <button id="calAllBtn" class="link-btn">Add all to calendar</button>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </div>
+  </header>
+
+  <div class="controls">
+    <input id="searchInput" type="text" placeholder="Search brand, app, or note…" autocomplete="off">
+    <div id="chipRow" class="chip-row"></div>
+  </div>
+
+  <main id="list"></main>
+</div>
+
+<div id="modalBackdrop" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h2 id="modalTitle">Add a coupon</h2>
+    <p class="modal-sub" id="modalSub">Fill in what you have — only brand, code and expiry are required.</p>
+    <div id="formError" class="form-error" hidden></div>
+    <form id="couponForm">
+      <input type="hidden" name="id">
+      <label>Brand / store *
+        <input name="brand" required placeholder="e.g. MakeMyTrip" autocomplete="off">
+      </label>
+      <label>Coupon code *
+        <input name="code" required placeholder="e.g. FLIGHT500" autocomplete="off">
+      </label>
+      <label>What it gives
+        <input name="discount_text" placeholder="e.g. ₹500 off flight bookings" autocomplete="off">
+      </label>
+      <div class="row2">
+        <label>Minimum order <span class="hint">(₹, number)</span>
+          <input name="min_order_value" type="number" min="0" step="1" inputmode="numeric" placeholder="4000">
+        </label>
+        <label>Expiry date *
+          <input name="expiry_date" type="date" required>
+        </label>
+      </div>
+      <div class="row2">
+        <label>Category
+          <select name="category"></select>
+        </label>
+        <label>Came from
+          <select name="source_app"></select>
+        </label>
+      </div>
+      <label>Link to use it <span class="hint">(optional)</span>
+        <input name="redeem_url" type="url" placeholder="https://www.makemytrip.com" autocomplete="off">
+      </label>
+      <label>Notes <span class="hint">(optional)</span>
+        <textarea name="notes" rows="2" placeholder="Max discount, card required, T&Cs…"></textarea>
+      </label>
+      <label class="check-label">
+        <input type="checkbox" name="reusable">
+        <span>Reusable — this offer can be used more than once, so don't retire it when I mark it used.</span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" id="cancelBtn" class="btn ghost">Cancel</button>
+        <button type="submit" class="btn primary" id="saveBtn">Save coupon</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     Data model — field names deliberately match the future
+     Postgres schema so Phase 2 is a storage swap, not a rewrite.
+     ============================================================ */
+  var CATEGORIES = ['Flights','Hotels','Shopping','Food','Recharge & Bills','Groceries','Entertainment','Other'];
+  var SOURCE_APPS = ['Cred','Google Pay','PhonePe','Paytm','Myntra','Flipkart','Amazon','Swiggy','Zomato','Bank / Card','Other'];
+
+  var DB_NAME = 'coupon-wallet';
+  var DB_VERSION = 1;
+  var STORE = 'coupons';
+
+  var state = { coupons:[], query:'', category:'All' };
+  var db = null;
+
+  var $ = function(id){ return document.getElementById(id); };
+  var listEl=$('list'), statsEl=$('stats'), chipRowEl=$('chipRow'), searchEl=$('searchInput'),
+      backdrop=$('modalBackdrop'), form=$('couponForm'), toastEl=$('toast'),
+      formError=$('formError'), modalTitle=$('modalTitle'), modalSub=$('modalSub'), saveBtn=$('saveBtn');
+
+  var ICONS = {
+    copy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+    check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+    undo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>',
+    trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>',
+    edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>',
+    link:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>'
+  };
+
+  function esc(s){
+    return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function uid(){ return 'c_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8); }
+  function todayISO(){
+    var n=new Date();
+    return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+  }
+  function daysUntil(dateStr){
+    var p=String(dateStr).split('-').map(Number);
+    var exp=Date.UTC(p[0],p[1]-1,p[2]);
+    var n=new Date();
+    var today=Date.UTC(n.getFullYear(),n.getMonth(),n.getDate());
+    return Math.round((exp-today)/86400000);
+  }
+  function statusOf(c){
+    if(c.used && !c.reusable) return 'used';
+    var d=daysUntil(c.expiry_date);
+    if(d<0) return 'expired';
+    if(d<=7) return 'soon';
+    return 'active';
+  }
+  function stampFor(s){ return {active:'Active',soon:'Expiring soon',expired:'Expired',used:'Used'}[s]; }
+  function daysLabel(c){
+    if(c.used && !c.reusable) return 'Marked used';
+    var d=daysUntil(c.expiry_date);
+    if(d<0) return 'Expired '+Math.abs(d)+'d ago';
+    if(d===0) return 'Expires today';
+    if(d===1) return '1 day left';
+    return d+' days left';
+  }
+  function fmtDate(dateStr){
+    var p=String(dateStr).split('-').map(Number);
+    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return p[2]+' '+months[p[1]-1]+' '+p[0];
+  }
+
+  /* ---------------- IndexedDB ---------------- */
+  function openDB(){
+    return new Promise(function(resolve,reject){
+      if(!window.indexedDB){ reject(new Error('IndexedDB unavailable')); return; }
+      var req=indexedDB.open(DB_NAME,DB_VERSION);
+      req.onupgradeneeded=function(e){
+        var d=e.target.result;
+        if(!d.objectStoreNames.contains(STORE)){
+          var os=d.createObjectStore(STORE,{keyPath:'id'});
+          os.createIndex('expiry_date','expiry_date',{unique:false});
+        }
+      };
+      req.onsuccess=function(){ resolve(req.result); };
+      req.onerror=function(){ reject(req.error); };
+    });
+  }
+  function tx(mode){ return db.transaction(STORE,mode).objectStore(STORE); }
+  function dbAll(){
+    return new Promise(function(resolve,reject){
+      var r=tx('readonly').getAll();
+      r.onsuccess=function(){ resolve(r.result||[]); };
+      r.onerror=function(){ reject(r.error); };
+    });
+  }
+  function dbPut(rec){
+    return new Promise(function(resolve,reject){
+      var r=tx('readwrite').put(rec);
+      r.onsuccess=function(){ resolve(rec); };
+      r.onerror=function(){ reject(r.error); };
+    });
+  }
+  function dbDelete(id){
+    return new Promise(function(resolve,reject){
+      var r=tx('readwrite').delete(id);
+      r.onsuccess=function(){ resolve(); };
+      r.onerror=function(){ reject(r.error); };
+    });
+  }
+
+  /* ---------------- toast ---------------- */
+  function toast(msg,actionLabel,action){
+    toastEl.innerHTML=esc(msg)+(actionLabel?' <button type="button" id="toastAction">'+esc(actionLabel)+'</button>':'');
+    toastEl.hidden=false;
+    if(actionLabel){
+      $('toastAction').addEventListener('click',function(){ toastEl.hidden=true; action(); });
+    }
+    clearTimeout(toastEl._t);
+    toastEl._t=setTimeout(function(){ toastEl.hidden=true; },5000);
+  }
+
+  /* ---------------- ICS export ----------------
+     Reminders without a backend: we hand the schedule to the
+     user's own calendar, which is already synced and already
+     trusted with notifications. Three alarms per coupon:
+     7 days out, 1 day out, and 9am on expiry day.            */
+  function icsEscape(t){
+    return String(t==null?'':t).replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n');
+  }
+  // RFC 5545 limits lines to 75 OCTETS, not characters — and '₹' is
+  // three bytes in UTF-8, so folding by string length overflows and
+  // some calendar apps reject the whole file. Count bytes instead,
+  // and never split in the middle of a multi-byte character.
+  function byteLen(s){
+    return (typeof TextEncoder!=='undefined') ? new TextEncoder().encode(s).length
+                                              : unescape(encodeURIComponent(s)).length;
+  }
+  function fold(line){
+    if(byteLen(line)<=75) return line;
+    var out='', cur='', limit=75, pieces=[];
+    for(var i=0;i<line.length;i++){
+      var ch=line[i];
+      // Keep surrogate pairs (emoji) intact.
+      if(ch.charCodeAt(0)>=0xD800 && ch.charCodeAt(0)<=0xDBFF && i+1<line.length){
+        ch+=line[++i];
+      }
+      if(byteLen(cur+ch)>limit){ pieces.push(cur); cur=ch; limit=74; } // continuation lines lose 1 octet to the leading space
+      else cur+=ch;
+    }
+    pieces.push(cur);
+    out=pieces[0];
+    for(var j=1;j<pieces.length;j++) out+='\r\n '+pieces[j];
+    return out;
+  }
+  function icsStamp(){
+    return new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
+  }
+  function vevent(c){
+    var d=String(c.expiry_date).replace(/-/g,'');
+    var summary='Coupon expires: '+c.brand+' ('+c.code+')';
+    var descParts=[];
+    if(c.discount_text) descParts.push(c.discount_text);
+    if(c.min_order_value) descParts.push('Min order: Rs '+c.min_order_value);
+    descParts.push('Code: '+c.code);
+    if(c.source_app) descParts.push('From: '+c.source_app);
+    if(c.notes) descParts.push(c.notes);
+    if(c.redeem_url) descParts.push(c.redeem_url);
+
+    var lines=[
+      'BEGIN:VEVENT',
+      'UID:'+c.id+'@coupon-wallet',
+      'DTSTAMP:'+icsStamp(),
+      // Floating local time — no timezone conversion surprises.
+      'DTSTART:'+d+'T090000',
+      'DTEND:'+d+'T093000',
+      fold('SUMMARY:'+icsEscape(summary)),
+      fold('DESCRIPTION:'+icsEscape(descParts.join('\n'))),
+      'TRANSP:TRANSPARENT'
+    ];
+    if(c.redeem_url) lines.push(fold('URL:'+icsEscape(c.redeem_url)));
+
+    [['-P7D','7 days left'],['-P1D','Expires tomorrow'],['PT0S','Expires today']].forEach(function(a){
+      lines.push('BEGIN:VALARM','ACTION:DISPLAY',
+        fold('DESCRIPTION:'+icsEscape(c.brand+' coupon '+c.code+' — '+a[1])),
+        'TRIGGER:'+a[0],'END:VALARM');
+    });
+    lines.push('END:VEVENT');
+    return lines;
+  }
+  function buildICS(coupons){
+    var out=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Coupon Wallet//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
+    coupons.forEach(function(c){ out=out.concat(vevent(c)); });
+    out.push('END:VCALENDAR');
+    return out.join('\r\n');
+  }
+  function download(filename,content,mime){
+    try{
+      var blob=new Blob([content],{type:mime});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url; a.download=filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); },1500);
+      return true;
+    }catch(e){ return false; }
+  }
+
+  /* ---------------- rendering ---------------- */
+  function renderChips(){
+    chipRowEl.innerHTML=['All'].concat(CATEGORIES).map(function(cat){
+      return '<button class="chip'+(cat===state.category?' is-active':'')+'" data-cat="'+esc(cat)+'">'+esc(cat)+'</button>';
+    }).join('');
+  }
+
+  function renderStats(){
+    if(!state.coupons.length){ statsEl.innerHTML=''; return; }
+    var live=state.coupons.filter(function(c){ var s=statusOf(c); return s==='active'||s==='soon'; });
+    var soon=live.filter(function(c){ return statusOf(c)==='soon'; }).length;
+    var html='<strong>'+live.length+'</strong> live coupon'+(live.length===1?'':'s');
+    if(soon) html+=' · <span class="warn">'+soon+' expiring within 7 days</span>';
+    statsEl.innerHTML=html;
+  }
+
+  function matches(c){
+    if(state.category!=='All' && c.category!==state.category) return false;
+    var q=state.query.trim().toLowerCase();
+    if(!q) return true;
+    return [c.brand,c.code,c.source_app,c.notes,c.discount_text,c.category].join(' ').toLowerCase().indexOf(q)!==-1;
+  }
+
+  function ticketHTML(c){
+    var st=statusOf(c);
+    var usedCls=(c.used&&!c.reusable)?' is-used':'';
+    var metaBits=[c.category];
+    var badges='';
+    if(c.min_order_value) badges+='<span class="badge">min ₹'+esc(c.min_order_value)+'</span>';
+    if(c.reusable) badges+='<span class="badge">reusable</span>';
+    return '<article class="ticket status-'+st+usedCls+'" data-id="'+esc(c.id)+'">'+
+      '<span class="stamp">'+stampFor(st)+'</span>'+
+      '<div class="stub">'+
+        '<span class="stub-label">'+esc(c.source_app||'Other')+'</span>'+
+        '<button class="code-btn" data-action="copy" data-code="'+esc(c.code)+'" title="Copy code">'+
+          '<span class="code">'+esc(c.code)+'</span>'+ICONS.copy+
+        '</button>'+
+      '</div>'+
+      '<div class="details">'+
+        '<div class="details-top">'+
+          '<h3 class="brand">'+esc(c.brand)+'</h3>'+
+          '<span class="meta-line">'+esc(metaBits.join(' · '))+' · expires '+esc(fmtDate(c.expiry_date))+'</span>'+
+        '</div>'+
+        (c.discount_text?'<p class="discount">'+esc(c.discount_text)+badges+'</p>':(badges?'<p class="discount">'+badges+'</p>':''))+
+        (c.notes?'<p class="notes">'+esc(c.notes)+'</p>':'')+
+        '<div class="details-bottom">'+
+          '<span class="days-left">'+daysLabel(c)+'</span>'+
+          '<div class="actions">'+
+            (c.redeem_url?'<a class="icon-btn" href="'+esc(c.redeem_url)+'" target="_blank" rel="noopener noreferrer" title="Open site">'+ICONS.link+'</a>':'')+
+            '<button class="icon-btn" data-action="calendar" title="Add reminders to calendar">'+ICONS.cal+'</button>'+
+            '<button class="icon-btn" data-action="edit" title="Edit">'+ICONS.edit+'</button>'+
+            ((c.used&&!c.reusable)
+              ?'<button class="icon-btn" data-action="unuse" title="Put back">'+ICONS.undo+'</button>'
+              :'<button class="icon-btn" data-action="use" title="Mark as used">'+ICONS.check+'</button>')+
+            '<button class="icon-btn" data-action="delete" title="Delete">'+ICONS.trash+'</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+    '</article>';
+  }
+
+  function renderList(){
+    if(!state.coupons.length){
+      listEl.innerHTML='<div class="empty"><h2>Your wallet is empty</h2>'+
+        '<p>Add the coupons piling up in Cred, GPay, Paytm, Myntra and the rest — before they quietly expire on you.</p>'+
+        '<button class="add-btn" data-action="open-add">+ Add your first coupon</button></div>';
+      return;
+    }
+    var visible=state.coupons.filter(matches);
+    if(!visible.length){
+      listEl.innerHTML='<div class="empty"><p>No coupons match that search or filter.</p></div>';
+      return;
+    }
+
+    var byExpiry=function(a,b){ return daysUntil(a.expiry_date)-daysUntil(b.expiry_date); };
+    var groups=[
+      {key:'soon',  title:'Needs attention', urgent:true,
+       items:visible.filter(function(c){ return statusOf(c)==='soon'; }).sort(byExpiry)},
+      {key:'active',title:'In your wallet',  urgent:false,
+       items:visible.filter(function(c){ return statusOf(c)==='active'; }).sort(byExpiry)},
+      {key:'done',  title:'Used & expired',  urgent:false,
+       items:visible.filter(function(c){ var s=statusOf(c); return s==='used'||s==='expired'; })
+             .sort(function(a,b){ return daysUntil(b.expiry_date)-daysUntil(a.expiry_date); })}
+    ];
+
+    listEl.innerHTML=groups.filter(function(g){ return g.items.length; }).map(function(g){
+      return '<h2 class="section-head'+(g.urgent?' urgent':'')+'">'+esc(g.title)+' ('+g.items.length+')</h2>'+
+             g.items.map(ticketHTML).join('');
+    }).join('');
+  }
+
+  function render(){ renderChips(); renderStats(); renderList(); }
+
+  /* ---------------- modal ---------------- */
+  function fillSelect(sel,opts){
+    sel.innerHTML=opts.map(function(o){ return '<option>'+esc(o)+'</option>'; }).join('');
+  }
+  fillSelect(form.category,CATEGORIES);
+  fillSelect(form.source_app,SOURCE_APPS);
+
+  function openModal(coupon){
+    form.reset();
+    formError.hidden=true;
+    if(coupon){
+      modalTitle.textContent='Edit coupon';
+      modalSub.textContent='Update the details — the calendar file will need re-exporting if you change the date.';
+      saveBtn.textContent='Save changes';
+      form.id.value=coupon.id;
+      form.brand.value=coupon.brand||'';
+      form.code.value=coupon.code||'';
+      form.discount_text.value=coupon.discount_text||'';
+      form.min_order_value.value=coupon.min_order_value==null?'':coupon.min_order_value;
+      form.expiry_date.value=coupon.expiry_date||'';
+      form.category.value=coupon.category||'Other';
+      form.source_app.value=coupon.source_app||'Other';
+      form.redeem_url.value=coupon.redeem_url||'';
+      form.notes.value=coupon.notes||'';
+      form.reusable.checked=!!coupon.reusable;
+    }else{
+      modalTitle.textContent='Add a coupon';
+      modalSub.textContent='Fill in what you have — only brand, code and expiry are required.';
+      saveBtn.textContent='Save coupon';
+      form.id.value='';
+      form.expiry_date.min=todayISO();
+    }
+    backdrop.hidden=false;
+    setTimeout(function(){ form.brand.focus(); },30);
+  }
+  function closeModal(){ backdrop.hidden=true; }
+
+  $('addBtn').addEventListener('click',function(){ openModal(null); });
+  $('cancelBtn').addEventListener('click',closeModal);
+  backdrop.addEventListener('click',function(e){ if(e.target===backdrop) closeModal(); });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&!backdrop.hidden) closeModal(); });
+
+  form.addEventListener('submit',function(e){
+    e.preventDefault();
+    formError.hidden=true;
+    var fd=new FormData(form);
+    var editingId=fd.get('id')||null;
+    var minVal=(fd.get('min_order_value')||'').trim();
+
+    var rec={
+      id: editingId||uid(),
+      brand:(fd.get('brand')||'').trim(),
+      code:(fd.get('code')||'').trim(),
+      discount_text:(fd.get('discount_text')||'').trim(),
+      min_order_value: minVal===''?null:Number(minVal),
+      category:fd.get('category'),
+      source_app:fd.get('source_app'),
+      expiry_date:fd.get('expiry_date'),
+      redeem_url:(fd.get('redeem_url')||'').trim(),
+      notes:(fd.get('notes')||'').trim(),
+      reusable:!!fd.get('reusable'),
+      used:false,
+      used_at:null,
+      created_at:new Date().toISOString(),
+      updated_at:new Date().toISOString()
+    };
+    if(!rec.brand||!rec.code||!rec.expiry_date) return;
+
+    if(editingId){
+      var prev=state.coupons.filter(function(c){ return c.id===editingId; })[0];
+      if(prev){ rec.used=prev.used; rec.used_at=prev.used_at; rec.created_at=prev.created_at; }
+    }else{
+      // Duplicate detection — same code at the same brand is almost
+      // always a re-add, and silent duplicates make the wallet noisy.
+      var dupe=state.coupons.filter(function(c){
+        return c.code.toLowerCase()===rec.code.toLowerCase() &&
+               c.brand.toLowerCase()===rec.brand.toLowerCase();
+      })[0];
+      if(dupe && !form._forceDupe){
+        form._forceDupe=true;
+        formError.hidden=false;
+        formError.textContent='You already have code '+dupe.code+' for '+dupe.brand+
+          ' (expires '+fmtDate(dupe.expiry_date)+'). Press Save again to add it anyway.';
+        return;
+      }
+    }
+    form._forceDupe=false;
+
+    dbPut(rec).then(function(){
+      var i=state.coupons.map(function(c){ return c.id; }).indexOf(rec.id);
+      if(i===-1) state.coupons.push(rec); else state.coupons[i]=rec;
+      closeModal();
+      render();
+      toast(editingId?'Coupon updated':'Coupon added', editingId?null:'Add reminders', function(){
+        exportCalendar([rec]);
+      });
+    }).catch(function(){ 
+      formError.hidden=false;
+      formError.textContent='Could not save to this device\u2019s storage. If you are in private browsing, try a normal window.';
+    });
+  });
+
+  /* ---------------- calendar / backup ---------------- */
+  function exportCalendar(coupons){
+    if(!coupons.length){ toast('Nothing to add — no upcoming coupons'); return; }
+    var name=coupons.length===1
+      ? 'coupon-'+coupons[0].brand.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'.ics'
+      : 'coupon-wallet-reminders.ics';
+    var ok=download(name,buildICS(coupons),'text/calendar;charset=utf-8');
+    toast(ok?'Calendar file downloaded — open it to add the reminders':'Could not create the calendar file');
+  }
+
+  $('calAllBtn').addEventListener('click',function(){
+    exportCalendar(state.coupons.filter(function(c){
+      var s=statusOf(c); return s==='active'||s==='soon';
+    }));
+  });
+
+  $('exportBtn').addEventListener('click',function(){
+    if(!state.coupons.length){ toast('Nothing to export yet'); return; }
+    var payload={ app:'coupon-wallet', version:1, exported_at:new Date().toISOString(), coupons:state.coupons };
+    var ok=download('coupon-wallet-backup-'+todayISO()+'.json',JSON.stringify(payload,null,2),'application/json');
+    toast(ok?'Backup downloaded — keep it somewhere safe':'Could not create the backup file');
+  });
+
+  $('importBtn').addEventListener('click',function(){ $('importFile').click(); });
+  $('importFile').addEventListener('change',function(e){
+    var file=e.target.files&&e.target.files[0];
+    if(!file) return;
+    var reader=new FileReader();
+    reader.onload=function(){
+      var parsed;
+      try{ parsed=JSON.parse(reader.result); }
+      catch(err){ toast('That file is not a valid backup'); return; }
+      var incoming=(parsed&&parsed.coupons)||(Array.isArray(parsed)?parsed:null);
+      if(!Array.isArray(incoming)){ toast('That file is not a valid backup'); return; }
+
+      var existing={};
+      state.coupons.forEach(function(c){ existing[(c.brand+'|'+c.code).toLowerCase()]=true; });
+      var added=0, skipped=0;
+      var writes=incoming.filter(function(c){ return c&&c.brand&&c.code&&c.expiry_date; }).map(function(c){
+        var key=(c.brand+'|'+c.code).toLowerCase();
+        if(existing[key]){ skipped++; return null; }
+        existing[key]=true; added++;
+        c.id=c.id||uid();
+        return dbPut(c).then(function(){ state.coupons.push(c); });
+      }).filter(Boolean);
+
+      Promise.all(writes).then(function(){
+        render();
+        toast('Imported '+added+' coupon'+(added===1?'':'s')+(skipped?' · '+skipped+' already here':''));
+      }).catch(function(){ toast('Import partly failed'); });
+    };
+    reader.readAsText(file);
+    e.target.value='';
+  });
+
+  /* ---------------- list interactions ---------------- */
+  listEl.addEventListener('click',function(e){
+    var btn=e.target.closest('[data-action]');
+    if(!btn) return;
+    var action=btn.dataset.action;
+
+    if(action==='open-add'){ openModal(null); return; }
+
+    if(action==='copy'){
+      var code=btn.dataset.code;
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(code)
+          .then(function(){ toast('Copied: '+code); })
+          .catch(function(){ toast('Could not copy — long-press the code instead'); });
+      }else{ toast('Could not copy — long-press the code instead'); }
+      return;
+    }
+
+    var art=btn.closest('.ticket');
+    var id=art&&art.dataset.id;
+    if(!id) return;
+    var idx=state.coupons.map(function(c){ return c.id; }).indexOf(id);
+    if(idx===-1) return;
+    var c=state.coupons[idx];
+
+    if(action==='edit'){ openModal(c); return; }
+    if(action==='calendar'){ exportCalendar([c]); return; }
+
+    if(action==='use'){
+      if(c.reusable){ toast('This one is marked reusable, so it stays in your wallet'); return; }
+      c.used=true; c.used_at=new Date().toISOString(); c.updated_at=c.used_at;
+      dbPut(c).then(function(){ render(); toast('Marked as used'); });
+      return;
+    }
+    if(action==='unuse'){
+      c.used=false; c.used_at=null; c.updated_at=new Date().toISOString();
+      dbPut(c).then(function(){ render(); toast('Put back in your wallet'); });
+      return;
+    }
+    if(action==='delete'){
+      var removed=state.coupons.splice(idx,1)[0];
+      render();
+      dbDelete(id).then(function(){
+        toast('Coupon deleted','Undo',function(){
+          dbPut(removed).then(function(){ state.coupons.push(removed); render(); });
+        });
+      });
+    }
+  });
+
+  searchEl.addEventListener('input',function(){ state.query=searchEl.value; renderList(); });
+  chipRowEl.addEventListener('click',function(e){
+    var chip=e.target.closest('.chip');
+    if(!chip) return;
+    state.category=chip.dataset.cat;
+    render();
+  });
+
+  /* ---------------- init ---------------- */
+  openDB().then(function(d){
+    db=d;
+    return dbAll();
+  }).then(function(rows){
+    state.coupons=rows;
+    render();
+  }).catch(function(){
+    state.coupons=[];
+    render();
+    toast('Storage unavailable — coupons won\u2019t be saved in this browser');
+  });
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
+})();
+</script>
+</body>
+</html>

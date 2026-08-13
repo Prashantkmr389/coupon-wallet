@@ -1,0 +1,16 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Future Phase 2 (Supabase/serverless) — nothing here yet, but never commit secrets
+.env
+.env.local
+node_modules/
+
+# Deploy tooling caches, if used later
+.vercel/
+.netlify/
