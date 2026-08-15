@@ -715,6 +715,14 @@
   backdrop.addEventListener('click',function(e){ if(e.target===backdrop) closeModal(); });
   document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&!backdrop.hidden) closeModal(); });
 
+  function checkDuplicate(brand, code){
+    var b = String(brand || '').trim().toLowerCase();
+    var c = String(code || '').trim().toLowerCase();
+    return state.coupons.filter(function(item){
+      return item.brand.toLowerCase() === b && item.code.toLowerCase() === c;
+    })[0] || null;
+  }
+
   form.addEventListener('submit',function(e){
     e.preventDefault();
     formError.hidden=true;
@@ -747,10 +755,7 @@
     }else{
       // Duplicate detection — same code at the same brand is almost
       // always a re-add, and silent duplicates make the wallet noisy.
-      var dupe=state.coupons.filter(function(c){
-        return c.code.toLowerCase()===rec.code.toLowerCase() &&
-               c.brand.toLowerCase()===rec.brand.toLowerCase();
-      })[0];
+      var dupe = checkDuplicate(rec.brand, rec.code);
       if(dupe && !form._forceDupe){
         form._forceDupe=true;
         formError.hidden=false;
