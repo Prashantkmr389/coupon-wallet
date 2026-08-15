@@ -62,3 +62,39 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+
+/* ---------------- Web Push Notifications ---------------- */
+self.addEventListener('push', event => {
+  let payload = { title: 'Coupon Wallet Reminder', body: 'You have a coupon expiring soon!' };
+  if (event.data) {
+    try { payload = event.data.json(); }
+    catch(e) { payload.body = event.data.text(); }
+  }
+
+  const options = {
+    body: payload.body,
+    icon: './icon-192.png',
+    badge: './icon-192.png',
+    data: payload.url || './index.html'
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, options)
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const urlToOpen = event.notification.data || './index.html';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url === urlToOpen && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) return clients.openWindow(urlToOpen);
+    })
+  );
+});

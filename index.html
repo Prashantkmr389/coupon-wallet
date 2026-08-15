@@ -231,6 +231,7 @@
       <button id="importBtn" class="link-btn">Import backup</button>
       <button id="calAllBtn" class="link-btn">Add all to calendar</button>
       <button id="authBtn" class="link-btn">☁️ Sync (Sign In)</button>
+      <button id="pushBtn" class="link-btn">🔔 Push Nudges</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden>
     </div>
   </header>
@@ -1152,6 +1153,65 @@
     });
   }
 
+  /* ---------------- Web Push Handler ---------------- */
+  var pushBtn = $('pushBtn');
+
+  function updatePushUI(){
+    if (!('Notification' in window)) {
+      pushBtn.style.display = 'none';
+      return;
+    }
+    if (Notification.permission === 'granted') {
+      pushBtn.textContent = '🔔 Push Enabled';
+      pushBtn.style.opacity = '0.8';
+    } else {
+      pushBtn.textContent = '🔔 Push Nudges';
+      pushBtn.style.opacity = '1';
+    }
+  }
+
+  function enableWebPush(){
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      toast('Web Push is not supported on this browser.');
+      return;
+    }
+
+    Notification.requestPermission().then(function(permission){
+      updatePushUI();
+      if (permission === 'granted') {
+        navigator.serviceWorker.ready.then(function(reg){
+          return reg.pushManager.getSubscription().then(function(sub){
+            if (sub) return sub;
+            // Generate or subscribe with VAPID key
+            var dummyVapid = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgTzkrxw_3-q4Z0X_Y123'; // VAPID Public Key
+            return reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: dummyVapid
+            }).catch(function(){ return null; });
+          });
+        }).then(function(subscription){
+          if (subscription && supabaseUser && supabaseClient) {
+            var subJson = subscription.toJSON();
+            supabaseClient.from('push_subscriptions').upsert({
+              user_id: supabaseUser.id,
+              endpoint: subscription.endpoint,
+              p256dh: subJson.keys ? subJson.keys.p256dh : '',
+              auth: subJson.keys ? subJson.keys.auth : ''
+            }).then(function(){
+              toast('Browser push notifications enabled!');
+            });
+          } else {
+            toast('Browser push notifications enabled!');
+          }
+        });
+      } else if (permission === 'denied') {
+        toast('Push notifications blocked in browser settings.');
+      }
+    });
+  }
+
+  pushBtn.addEventListener('click', enableWebPush);
+
   /* ---------------- init ---------------- */
   openDB().then(function(d){
     db=d;
@@ -1160,6 +1220,7 @@
     state.coupons=rows;
     render();
     updateAuthUI();
+    updatePushUI();
   }).catch(function(){
     state.coupons=[];
     render();

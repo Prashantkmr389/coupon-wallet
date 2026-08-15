@@ -1,13 +1,13 @@
-# Coupon Wallet (Phase 1 & Phase 2)
+# Coupon Wallet (Phases 1, 2, & 3)
 
-A local-first coupon organiser with optional cross-device cloud sync via Supabase. No complex setup required.
-Coupons live in IndexedDB on the device and sync seamlessly with your Supabase account when signed in; reminders are delegated to your calendar.
+A local-first coupon organiser with optional cross-device cloud sync via Supabase, weekly email digest summaries, and browser web push notifications. No complex setup required.
+Coupons live in IndexedDB on the device and sync seamlessly with your Supabase account when signed in; reminders are delegated to your calendar, weekly digest email, and browser push notifications.
 
 Implements the specification and architecture recorded in `ADR-0001` and `2026-08-15-coupon-wallet-phases.md`.
 
 ---
 
-## Features (Phase 1 & Phase 2)
+## Features (Phases 1–3)
 
 | Feature | Notes |
 |---|---|
@@ -17,6 +17,8 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 | Calendar reminders | `.ics` per coupon (or all at once) with alarms at **−7d, −1d, 9am on expiry day** |
 | **Cloud Sync & Magic Link Auth (Phase 2)** | Sync coupons across phone and laptop via Supabase Postgres + passwordless magic-link sign in |
 | **1-Click Local to Cloud Migration** | Automatically syncs local IndexedDB coupons to your cloud account upon sign-in |
+| **Weekly Email Digest (Phase 3)** | Scheduled Supabase Edge Function sends a Monday 9am email summarizing coupons expiring within 7 days |
+| **Browser Web Push Nudges (Phase 3)** | Receive native browser push notifications when coupons are due |
 | **Hybrid Storage Adapter** | Operates cloud-first when signed in, falling back gracefully to IndexedDB when offline/guest |
 | JSON export / import | Backup and manual device transfer capability |
 | Duplicate detection | Warns on same code + same brand; second Save overrides |
@@ -30,26 +32,28 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 ## Repository Structure
 
 ```
-index.html              the entire app (UI, logic, Supabase hybrid adapter)
-manifest.json           PWA metadata
-sw.js                   service worker, app-shell caching
-supabase/schema.sql     Postgres database schema + Row Level Security (RLS) policies
-tests/                  Automated test suites (10/10 test files)
-icon-192.png            home screen icon
-icon-512.png            splash / store icon
-icon-maskable-512.png   Android adaptive icon
+index.html                              the entire app (UI, logic, Supabase hybrid adapter, Web Push UI)
+manifest.json                           PWA metadata
+sw.js                                   service worker (app-shell caching, Web Push event handlers)
+supabase/schema.sql                     Postgres database schema (coupons & push_subscriptions + RLS)
+supabase/functions/weekly-digest/      Supabase Edge Function for Monday 9am email digests
+tests/                                  Automated test suites (11/11 test files)
+icon-192.png                            home screen icon
+icon-512.png                            splash / store icon
+icon-maskable-512.png                   Android adaptive icon
 ```
 
 ---
 
-## Supabase Database Setup (Phase 2)
+## Supabase Database Setup (Phases 2 & 3)
 
-To enable cloud sync:
+To enable cloud sync and notifications:
 
 1. Create a free project at [Supabase](https://supabase.com).
 2. Open the SQL Editor in Supabase Dashboard and run the contents of [`supabase/schema.sql`](file:///Users/prashant/codebase/coupon-wallet/supabase/schema.sql).
-3. In the app, click **☁️ Sync (Sign In)** and enter your Supabase Project URL, Anon Key, and Email.
-4. Click the Magic Link sent to your email to complete authentication!
+3. Deploy the Edge Function: `supabase functions deploy weekly-digest`.
+4. In the app, click **☁️ Sync (Sign In)** and enter your Supabase Project URL, Anon Key, and Email.
+5. Click **🔔 Push Nudges** to enable browser push notifications!
 
 ---
 
@@ -92,8 +96,9 @@ python3 -m http.server 8000
 
 - [x] **Phase 1** — Local-First PWA, IndexedDB, calendar reminders, JSON backup
 - [x] **Phase 2** — Supabase Postgres + magic-link auth, hybrid cross-device sync
-- [ ] **Phase 3** — scheduled weekly digest email of expiring coupons
+- [x] **Phase 3** — scheduled weekly digest email of expiring coupons & Web Push notifications
 - [ ] **Phase 4** — paste an SMS/email or screenshot, Claude extracts the fields
 - [ ] **Phase 5** — Chrome extension badge when you visit a matching retailer
 - [ ] **Phase 6** — shared household wallet, ₹-saved tracker, forwarding address
+
 
