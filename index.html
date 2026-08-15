@@ -429,6 +429,54 @@
     return Promise.resolve();
   }
 
+  /* ---------------- Data Layer (CRUD) ---------------- */
+  function addCoupon(brand, code, discount_text, min_order_value, category, source_app, expiry_date, redeem_url, notes, reusable){
+    var coupon = {
+      brand: String(brand || '').trim(),
+      code: String(code || '').trim(),
+      discount_text: String(discount_text || '').trim(),
+      min_order_value: (min_order_value == null || min_order_value === '') ? null : Number(min_order_value),
+      category: category || 'Other',
+      source_app: source_app || 'Other',
+      expiry_date: expiry_date,
+      redeem_url: String(redeem_url || '').trim() || null,
+      notes: String(notes || '').trim(),
+      reusable: !!reusable,
+      used: false,
+      used_at: null
+    };
+    return dbPut(coupon).then(function(){ return coupon; });
+  }
+
+  function getCoupon(id){
+    return dbAll().then(function(all){
+      for(var i=0; i<all.length; i++){
+        if(all[i].id === id) return all[i];
+      }
+      return null;
+    });
+  }
+
+  function updateCoupon(id, updates){
+    return getCoupon(id).then(function(coupon){
+      if(!coupon) throw new Error('Coupon ' + id + ' not found');
+      Object.assign(coupon, updates);
+      return dbPut(coupon).then(function(){ return coupon; });
+    });
+  }
+
+  function markUsed(id){
+    return updateCoupon(id, { used: true, used_at: new Date().toISOString() });
+  }
+
+  function markUnused(id){
+    return updateCoupon(id, { used: false, used_at: null });
+  }
+
+  function deleteCoupon(id){
+    return dbDelete(id);
+  }
+
   /* ---------------- toast ---------------- */
   function toast(msg,actionLabel,action){
     toastEl.innerHTML=esc(msg)+(actionLabel?' <button type="button" id="toastAction">'+esc(actionLabel)+'</button>':'');
