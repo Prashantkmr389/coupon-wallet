@@ -343,12 +343,18 @@
     var today=Date.UTC(n.getFullYear(),n.getMonth(),n.getDate());
     return Math.round((exp-today)/86400000);
   }
-  function statusOf(c){
-    if(c.used && !c.reusable) return 'used';
+  function getExpireStatus(c){
+    if(c.used && !c.reusable) return { status: 'used', daysUntilExpiry: -1 };
     var d=daysUntil(c.expiry_date);
-    if(d<0) return 'expired';
-    if(d<=7) return 'soon';
-    return 'active';
+    if(d<0) return { status: 'expired', daysUntilExpiry: d };
+    if(d===0) return { status: 'expires-today', daysUntilExpiry: 0 };
+    if(d<=7) return { status: 'expiring-soon', daysUntilExpiry: d };
+    return { status: 'active', daysUntilExpiry: d };
+  }
+  function statusOf(c){
+    var res = getExpireStatus(c);
+    if(res.status === 'expiring-soon' || res.status === 'expires-today') return 'soon';
+    return res.status;
   }
   function stampFor(s){ return {active:'Active',soon:'Expiring soon',expired:'Expired',used:'Used'}[s]; }
   function daysLabel(c){
