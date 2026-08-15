@@ -790,11 +790,18 @@
     toast(ok?'Calendar file downloaded — open it to add the reminders':'Could not create the calendar file');
   }
 
-  $('calAllBtn').addEventListener('click',function(){
+  function exportToCalendar(id){
+    var c = state.coupons.filter(function(item){ return item.id === id; })[0];
+    if(c) exportCalendar([c]);
+  }
+
+  function exportAllToCalendar(){
     exportCalendar(state.coupons.filter(function(c){
       var s=statusOf(c); return s==='active'||s==='soon';
     }));
-  });
+  }
+
+  $('calAllBtn').addEventListener('click', exportAllToCalendar);
 
   function exportJSON(){
     if(!state.coupons.length){ toast('Nothing to export yet'); return false; }
