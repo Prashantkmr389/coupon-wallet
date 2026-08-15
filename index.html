@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -229,6 +230,7 @@
       <button id="exportBtn" class="link-btn">Export backup</button>
       <button id="importBtn" class="link-btn">Import backup</button>
       <button id="calAllBtn" class="link-btn">Add all to calendar</button>
+      <button id="authBtn" class="link-btn">☁️ Sync (Sign In)</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden>
     </div>
   </header>
@@ -286,6 +288,29 @@
       <div class="modal-actions">
         <button type="button" id="cancelBtn" class="btn ghost">Cancel</button>
         <button type="submit" class="btn primary" id="saveBtn">Save coupon</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="authModalBackdrop" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+    <h2 id="authModalTitle">Cloud Sync & Backup</h2>
+    <p class="modal-sub" id="authModalSub">Sign in with a passwordless Magic Link to sync your wallet across all devices.</p>
+    <div id="authFormError" class="form-error" hidden></div>
+    <form id="authForm">
+      <label>Email address *
+        <input id="authEmail" type="email" required placeholder="you@example.com" autocomplete="email">
+      </label>
+      <label>Supabase Project URL <span class="hint">(optional if pre-configured)</span>
+        <input id="supabaseUrlInput" type="url" placeholder="https://your-project.supabase.co">
+      </label>
+      <label>Supabase Anon Key <span class="hint">(optional if pre-configured)</span>
+        <input id="supabaseKeyInput" type="password" placeholder="eyJhbGciOiJIUzI1NiI...">
+      </label>
+      <div class="modal-actions">
+        <button type="button" id="authCancelBtn" class="btn ghost">Cancel</button>
+        <button type="submit" class="btn primary" id="authSubmitBtn">Send Magic Link</button>
       </div>
     </form>
   </div>
@@ -371,7 +396,30 @@
     return p[2]+' '+months[p[1]-1]+' '+p[0];
   }
 
-  /* ---------------- IndexedDB ---------------- */
+  /* ---------------- Supabase & Hybrid Storage ---------------- */
+  var supabaseClient = null;
+  var supabaseUser = null;
+
+  function initSupabase(url, key){
+    if (!window.supabase || !url || !key) return null;
+    try {
+      supabaseClient = window.supabase.createClient(url, key);
+      return supabaseClient;
+    } catch(e) {
+      console.warn("Supabase init error:", e);
+      supabaseClient = null;
+      return null;
+    }
+  }
+
+  // Load stored Supabase config from localStorage if present
+  var savedUrl = localStorage.getItem("cw_supabase_url");
+  var savedKey = localStorage.getItem("cw_supabase_key");
+  if (savedUrl && savedKey) {
+    initSupabase(savedUrl, savedKey);
+  }
+
+  /* ---------------- Storage Layer (Hybrid: Supabase + IndexedDB) ---------------- */
   var db = null;
   function dbOpen(){
     return new Promise(function(resolve,reject){
@@ -394,7 +442,7 @@
 
   function tx(mode){ return db.transaction(STORE,mode).objectStore(STORE); }
 
-  function dbAll(){
+  function dbAllLocal(){
     return dbOpen().then(function(d){
       return new Promise(function(resolve,reject){
         var r=tx('readonly').getAll();
@@ -404,11 +452,53 @@
     });
   }
 
+  function dbAll(){
+    if (supabaseUser && supabaseClient) {
+      return supabaseClient.from('coupons').select('*').order('expiry_date', { ascending: true })
+        .then(function(res){
+          if (res.error) throw res.error;
+          return res.data || [];
+        })
+        .catch(function(err){
+          console.warn("Supabase fetch failed, falling back to local DB:", err);
+          return dbAllLocal();
+        });
+    }
+    return dbAllLocal();
+  }
+
   function dbPut(rec){
+    rec.id = rec.id || ('coupon-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
+    rec.created_at = rec.created_at || new Date().toISOString();
+    rec.updated_at = new Date().toISOString();
+
+    if (supabaseUser && supabaseClient) {
+      var cloudRec = Object.assign({}, rec, { user_id: supabaseUser.id });
+      return supabaseClient.from('coupons').upsert(cloudRec)
+        .then(function(res){
+          if (res.error) throw res.error;
+          // Also mirror locally for offline fallback
+          return dbOpen().then(function(){
+            return new Promise(function(resolve){
+              var r = tx('readwrite').put(rec);
+              r.onsuccess = function(){ resolve(rec.id); };
+              r.onerror = function(){ resolve(rec.id); };
+            });
+          });
+        })
+        .catch(function(err){
+          console.warn("Supabase write failed, writing locally:", err);
+          return dbOpen().then(function(){
+            return new Promise(function(resolve,reject){
+              var r=tx('readwrite').put(rec);
+              r.onsuccess=function(){ resolve(rec.id); };
+              r.onerror=function(){ reject(r.error); };
+            });
+          });
+        });
+    }
+
     return dbOpen().then(function(d){
-      rec.id = rec.id || ('coupon-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
-      rec.created_at = rec.created_at || new Date().toISOString();
-      rec.updated_at = new Date().toISOString();
       return new Promise(function(resolve,reject){
         var r=tx('readwrite').put(rec);
         r.onsuccess=function(){ resolve(rec.id); };
@@ -418,12 +508,38 @@
   }
 
   function dbDelete(id){
+    if (supabaseUser && supabaseClient) {
+      return supabaseClient.from('coupons').delete().eq('id', id)
+        .then(function(res){
+          if (res.error) console.warn("Supabase delete error:", res.error);
+          return dbOpen().then(function(){
+            return new Promise(function(resolve){
+              var r = tx('readwrite').delete(id);
+              r.onsuccess = function(){ resolve(); };
+              r.onerror = function(){ resolve(); };
+            });
+          });
+        });
+    }
+
     return dbOpen().then(function(d){
       return new Promise(function(resolve,reject){
         var r=tx('readwrite').delete(id);
         r.onsuccess=function(){ resolve(); };
         r.onerror=function(){ reject(r.error); };
       });
+    });
+  }
+
+  function migrateLocalToCloud(){
+    if (!supabaseUser || !supabaseClient) return Promise.resolve(0);
+    return dbAllLocal().then(function(localItems){
+      if (!localItems.length) return 0;
+      var promises = localItems.map(function(item){
+        var cloudRec = Object.assign({}, item, { user_id: supabaseUser.id });
+        return supabaseClient.from('coupons').upsert(cloudRec);
+      });
+      return Promise.all(promises).then(function(){ return localItems.length; });
     });
   }
 
@@ -914,6 +1030,128 @@
     render();
   });
 
+  /* ---------------- Auth UI & Session Management ---------------- */
+  var authBackdrop = $('authModalBackdrop');
+  var authForm = $('authForm');
+  var authBtn = $('authBtn');
+  var authFormError = $('authFormError');
+
+  function openAuthModal(){
+    authForm.reset();
+    authFormError.hidden = true;
+    if (savedUrl) $('supabaseUrlInput').value = savedUrl;
+    if (savedKey) $('supabaseKeyInput').value = savedKey;
+    authBackdrop.hidden = false;
+    setTimeout(function(){ $('authEmail').focus(); }, 30);
+  }
+
+  function closeAuthModal(){
+    authBackdrop.hidden = true;
+  }
+
+  function updateAuthUI(){
+    if (supabaseUser) {
+      authBtn.textContent = '☁️ ' + (supabaseUser.email || 'Cloud User') + ' (Sign out)';
+    } else {
+      authBtn.textContent = '☁️ Sync (Sign In)';
+    }
+  }
+
+  authBtn.addEventListener('click', function(){
+    if (supabaseUser && supabaseClient) {
+      if (confirm('Sign out from cloud wallet?')) {
+        supabaseClient.auth.signOut().then(function(){
+          supabaseUser = null;
+          updateAuthUI();
+          dbAll().then(function(rows){ state.coupons = rows; render(); });
+          toast('Signed out from cloud wallet');
+        });
+      }
+      return;
+    }
+    openAuthModal();
+  });
+
+  $('authCancelBtn').addEventListener('click', closeAuthModal);
+  authBackdrop.addEventListener('click', function(e){ if (e.target === authBackdrop) closeAuthModal(); });
+
+  authForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    authFormError.hidden = true;
+
+    var email = ($('authEmail').value || '').trim();
+    var url = ($('supabaseUrlInput').value || '').trim() || savedUrl;
+    var key = ($('supabaseKeyInput').value || '').trim() || savedKey;
+
+    if (!url || !key) {
+      authFormError.hidden = false;
+      authFormError.textContent = 'Please enter your Supabase Project URL and Anon Key.';
+      return;
+    }
+
+    localStorage.setItem("cw_supabase_url", url);
+    localStorage.setItem("cw_supabase_key", key);
+    savedUrl = url;
+    savedKey = key;
+
+    initSupabase(url, key);
+
+    if (!supabaseClient) {
+      authFormError.hidden = false;
+      authFormError.textContent = 'Failed to initialize Supabase client with provided URL/Key.';
+      return;
+    }
+
+    $('authSubmitBtn').disabled = true;
+    $('authSubmitBtn').textContent = 'Sending...';
+
+    supabaseClient.auth.signInWithOtp({
+      email: email,
+      options: { emailRedirectTo: window.location.origin }
+    }).then(function(res){
+      $('authSubmitBtn').disabled = false;
+      $('authSubmitBtn').textContent = 'Send Magic Link';
+      if (res.error) {
+        authFormError.hidden = false;
+        authFormError.textContent = res.error.message;
+      } else {
+        closeAuthModal();
+        toast('Magic Link sent to ' + email + '! Check your inbox.');
+      }
+    }).catch(function(err){
+      $('authSubmitBtn').disabled = false;
+      $('authSubmitBtn').textContent = 'Send Magic Link';
+      authFormError.hidden = false;
+      authFormError.textContent = err.message || 'Error sending magic link';
+    });
+  });
+
+  // Listen for Supabase Session state
+  if (supabaseClient && supabaseClient.auth) {
+    supabaseClient.auth.getSession().then(function(res){
+      if (res.data && res.data.session) {
+        supabaseUser = res.data.session.user;
+        updateAuthUI();
+      }
+    });
+
+    supabaseClient.auth.onAuthStateChange(function(event, session){
+      supabaseUser = session ? session.user : null;
+      updateAuthUI();
+      if (session) {
+        migrateLocalToCloud().then(function(count){
+          if (count > 0) toast('Synced ' + count + ' local coupon(s) to your cloud wallet!');
+          return dbAll();
+        }).then(function(rows){
+          state.coupons = rows;
+          render();
+        });
+      } else {
+        dbAll().then(function(rows){ state.coupons = rows; render(); });
+      }
+    });
+  }
+
   /* ---------------- init ---------------- */
   openDB().then(function(d){
     db=d;
@@ -921,6 +1159,7 @@
   }).then(function(rows){
     state.coupons=rows;
     render();
+    updateAuthUI();
   }).catch(function(){
     state.coupons=[];
     render();
