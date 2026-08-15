@@ -53,7 +53,7 @@ export function formatDigestEmail(email: string, expiringCoupons: Coupon[]): { s
         </table>
 
         <div style="margin-top: 24px; text-align: center;">
-          <a href="https://coupon-wallet.netlify.app" style="background: #2F6E56; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; display: inline-block;">Open Coupon Wallet</a>
+          <a href="https://coupoun.netlify.app" style="background: #2F6E56; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; display: inline-block;">Open Coupon Wallet</a>
         </div>
       </div>
     </body>
