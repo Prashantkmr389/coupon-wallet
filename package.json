@@ -1,0 +1,27 @@
+{
+  "name": "coupon-wallet",
+  "version": "1.0.0",
+  "description": "A local-first coupon organiser. No accounts, no server, no running cost. Coupons live in IndexedDB on the device; reminders are delegated to your calendar.",
+  "main": "sw.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "node tests/task1_1.test.js && node tests/task1_2.test.js && node tests/task2_1.test.js && node tests/task2_2.test.js && node tests/task3_1.test.js && node tests/task3_2.test.js && node tests/task3_3.test.js && node tests/task3_4.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Prashantkmr389/coupon-wallet.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Prashantkmr389/coupon-wallet/issues"
+  },
+  "homepage": "https://github.com/Prashantkmr389/coupon-wallet#readme",
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  }
+}

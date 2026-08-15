@@ -343,12 +343,18 @@
     var today=Date.UTC(n.getFullYear(),n.getMonth(),n.getDate());
     return Math.round((exp-today)/86400000);
   }
-  function statusOf(c){
-    if(c.used && !c.reusable) return 'used';
+  function getExpireStatus(c){
+    if(c.used && !c.reusable) return { status: 'used', daysUntilExpiry: -1 };
     var d=daysUntil(c.expiry_date);
-    if(d<0) return 'expired';
-    if(d<=7) return 'soon';
-    return 'active';
+    if(d<0) return { status: 'expired', daysUntilExpiry: d };
+    if(d===0) return { status: 'expires-today', daysUntilExpiry: 0 };
+    if(d<=7) return { status: 'expiring-soon', daysUntilExpiry: d };
+    return { status: 'active', daysUntilExpiry: d };
+  }
+  function statusOf(c){
+    var res = getExpireStatus(c);
+    if(res.status === 'expiring-soon' || res.status === 'expires-today') return 'soon';
+    return res.status;
   }
   function stampFor(s){ return {active:'Active',soon:'Expiring soon',expired:'Expired',used:'Used'}[s]; }
   function daysLabel(c){
@@ -366,42 +372,115 @@
   }
 
   /* ---------------- IndexedDB ---------------- */
-  function openDB(){
+  var db = null;
+  function dbOpen(){
     return new Promise(function(resolve,reject){
+      if(db) return resolve(db);
       if(!window.indexedDB){ reject(new Error('IndexedDB unavailable')); return; }
       var req=indexedDB.open(DB_NAME,DB_VERSION);
       req.onupgradeneeded=function(e){
         var d=e.target.result;
         if(!d.objectStoreNames.contains(STORE)){
           var os=d.createObjectStore(STORE,{keyPath:'id'});
-          os.createIndex('expiry_date','expiry_date',{unique:false});
+          os.createIndex('expiry','expiry_date',{unique:false});
+          os.createIndex('brand','brand',{unique:false});
         }
       };
-      req.onsuccess=function(){ resolve(req.result); };
+      req.onsuccess=function(){ db=req.result; resolve(db); };
       req.onerror=function(){ reject(req.error); };
     });
   }
+  var openDB = dbOpen; // Alias for backward compatibility
+
   function tx(mode){ return db.transaction(STORE,mode).objectStore(STORE); }
+
   function dbAll(){
-    return new Promise(function(resolve,reject){
-      var r=tx('readonly').getAll();
-      r.onsuccess=function(){ resolve(r.result||[]); };
-      r.onerror=function(){ reject(r.error); };
+    return dbOpen().then(function(d){
+      return new Promise(function(resolve,reject){
+        var r=tx('readonly').getAll();
+        r.onsuccess=function(){ resolve(r.result||[]); };
+        r.onerror=function(){ reject(r.error); };
+      });
     });
   }
+
   function dbPut(rec){
-    return new Promise(function(resolve,reject){
-      var r=tx('readwrite').put(rec);
-      r.onsuccess=function(){ resolve(rec); };
-      r.onerror=function(){ reject(r.error); };
+    return dbOpen().then(function(d){
+      rec.id = rec.id || ('coupon-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
+      rec.created_at = rec.created_at || new Date().toISOString();
+      rec.updated_at = new Date().toISOString();
+      return new Promise(function(resolve,reject){
+        var r=tx('readwrite').put(rec);
+        r.onsuccess=function(){ resolve(rec.id); };
+        r.onerror=function(){ reject(r.error); };
+      });
     });
   }
+
   function dbDelete(id){
-    return new Promise(function(resolve,reject){
-      var r=tx('readwrite').delete(id);
-      r.onsuccess=function(){ resolve(); };
-      r.onerror=function(){ reject(r.error); };
+    return dbOpen().then(function(d){
+      return new Promise(function(resolve,reject){
+        var r=tx('readwrite').delete(id);
+        r.onsuccess=function(){ resolve(); };
+        r.onerror=function(){ reject(r.error); };
+      });
     });
+  }
+
+  function dbClose(){
+    if(db){
+      db.close();
+      db = null;
+    }
+    return Promise.resolve();
+  }
+
+  /* ---------------- Data Layer (CRUD) ---------------- */
+  function addCoupon(brand, code, discount_text, min_order_value, category, source_app, expiry_date, redeem_url, notes, reusable){
+    var coupon = {
+      brand: String(brand || '').trim(),
+      code: String(code || '').trim(),
+      discount_text: String(discount_text || '').trim(),
+      min_order_value: (min_order_value == null || min_order_value === '') ? null : Number(min_order_value),
+      category: category || 'Other',
+      source_app: source_app || 'Other',
+      expiry_date: expiry_date,
+      redeem_url: String(redeem_url || '').trim() || null,
+      notes: String(notes || '').trim(),
+      reusable: !!reusable,
+      used: false,
+      used_at: null
+    };
+    return dbPut(coupon).then(function(){ return coupon; });
+  }
+
+  function getCoupon(id){
+    return dbAll().then(function(all){
+      for(var i=0; i<all.length; i++){
+        if(all[i].id === id) return all[i];
+      }
+      return null;
+    });
+  }
+
+  function updateCoupon(id, updates){
+    return getCoupon(id).then(function(coupon){
+      if(!coupon) throw new Error('Coupon ' + id + ' not found');
+      Object.assign(coupon, updates);
+      return dbPut(coupon).then(function(){ return coupon; });
+    });
+  }
+
+  function markUsed(id){
+    return updateCoupon(id, { used: true, used_at: new Date().toISOString() });
+  }
+
+  function markUnused(id){
+    return updateCoupon(id, { used: false, used_at: null });
+  }
+
+  function deleteCoupon(id){
+    return dbDelete(id);
   }
 
   /* ---------------- toast ---------------- */
@@ -636,6 +715,14 @@
   backdrop.addEventListener('click',function(e){ if(e.target===backdrop) closeModal(); });
   document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&!backdrop.hidden) closeModal(); });
 
+  function checkDuplicate(brand, code){
+    var b = String(brand || '').trim().toLowerCase();
+    var c = String(code || '').trim().toLowerCase();
+    return state.coupons.filter(function(item){
+      return item.brand.toLowerCase() === b && item.code.toLowerCase() === c;
+    })[0] || null;
+  }
+
   form.addEventListener('submit',function(e){
     e.preventDefault();
     formError.hidden=true;
@@ -668,10 +755,7 @@
     }else{
       // Duplicate detection — same code at the same brand is almost
       // always a re-add, and silent duplicates make the wallet noisy.
-      var dupe=state.coupons.filter(function(c){
-        return c.code.toLowerCase()===rec.code.toLowerCase() &&
-               c.brand.toLowerCase()===rec.brand.toLowerCase();
-      })[0];
+      var dupe = checkDuplicate(rec.brand, rec.code);
       if(dupe && !form._forceDupe){
         form._forceDupe=true;
         formError.hidden=false;
@@ -706,49 +790,70 @@
     toast(ok?'Calendar file downloaded — open it to add the reminders':'Could not create the calendar file');
   }
 
-  $('calAllBtn').addEventListener('click',function(){
+  function exportToCalendar(id){
+    var c = state.coupons.filter(function(item){ return item.id === id; })[0];
+    if(c) exportCalendar([c]);
+  }
+
+  function exportAllToCalendar(){
     exportCalendar(state.coupons.filter(function(c){
       var s=statusOf(c); return s==='active'||s==='soon';
     }));
-  });
+  }
 
-  $('exportBtn').addEventListener('click',function(){
-    if(!state.coupons.length){ toast('Nothing to export yet'); return; }
+  $('calAllBtn').addEventListener('click', exportAllToCalendar);
+
+  function exportJSON(){
+    if(!state.coupons.length){ toast('Nothing to export yet'); return false; }
     var payload={ app:'coupon-wallet', version:1, exported_at:new Date().toISOString(), coupons:state.coupons };
     var ok=download('coupon-wallet-backup-'+todayISO()+'.json',JSON.stringify(payload,null,2),'application/json');
     toast(ok?'Backup downloaded — keep it somewhere safe':'Could not create the backup file');
-  });
+    return ok;
+  }
+
+  function importJSON(file){
+    return new Promise(function(resolve, reject){
+      if(!file) return reject(new Error("No file provided"));
+      var reader=new FileReader();
+      reader.onload=function(){
+        var parsed;
+        try{ parsed=JSON.parse(reader.result); }
+        catch(err){ toast('That file is not a valid backup'); return reject(err); }
+        var incoming=(parsed&&parsed.coupons)||(Array.isArray(parsed)?parsed:null);
+        if(!Array.isArray(incoming)){ toast('That file is not a valid backup'); return reject(new Error("Invalid format")); }
+
+        var existing={};
+        state.coupons.forEach(function(c){ existing[(c.brand+'|'+c.code).toLowerCase()]=true; });
+        var added=0, skipped=0;
+        var writes=incoming.filter(function(c){ return c&&c.brand&&c.code&&c.expiry_date; }).map(function(c){
+          var key=(c.brand+'|'+c.code).toLowerCase();
+          if(existing[key]){ skipped++; return null; }
+          existing[key]=true; added++;
+          c.id=c.id||uid();
+          return dbPut(c).then(function(){ state.coupons.push(c); });
+        }).filter(Boolean);
+
+        Promise.all(writes).then(function(){
+          render();
+          toast('Imported '+added+' coupon'+(added===1?'':'s')+(skipped?' · '+skipped+' already here':''));
+          resolve({ added: added, skipped: skipped });
+        }).catch(function(err){
+          toast('Import partly failed');
+          reject(err);
+        });
+      };
+      reader.onerror=function(err){ reject(err); };
+      reader.readAsText(file);
+    });
+  }
+
+  $('exportBtn').addEventListener('click', exportJSON);
 
   $('importBtn').addEventListener('click',function(){ $('importFile').click(); });
   $('importFile').addEventListener('change',function(e){
     var file=e.target.files&&e.target.files[0];
     if(!file) return;
-    var reader=new FileReader();
-    reader.onload=function(){
-      var parsed;
-      try{ parsed=JSON.parse(reader.result); }
-      catch(err){ toast('That file is not a valid backup'); return; }
-      var incoming=(parsed&&parsed.coupons)||(Array.isArray(parsed)?parsed:null);
-      if(!Array.isArray(incoming)){ toast('That file is not a valid backup'); return; }
-
-      var existing={};
-      state.coupons.forEach(function(c){ existing[(c.brand+'|'+c.code).toLowerCase()]=true; });
-      var added=0, skipped=0;
-      var writes=incoming.filter(function(c){ return c&&c.brand&&c.code&&c.expiry_date; }).map(function(c){
-        var key=(c.brand+'|'+c.code).toLowerCase();
-        if(existing[key]){ skipped++; return null; }
-        existing[key]=true; added++;
-        c.id=c.id||uid();
-        return dbPut(c).then(function(){ state.coupons.push(c); });
-      }).filter(Boolean);
-
-      Promise.all(writes).then(function(){
-        render();
-        toast('Imported '+added+' coupon'+(added===1?'':'s')+(skipped?' · '+skipped+' already here':''));
-      }).catch(function(){ toast('Import partly failed'); });
-    };
-    reader.readAsText(file);
-    e.target.value='';
+    importJSON(file).finally(function(){ e.target.value=''; });
   });
 
   /* ---------------- list interactions ---------------- */
