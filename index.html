@@ -366,42 +366,67 @@
   }
 
   /* ---------------- IndexedDB ---------------- */
-  function openDB(){
+  var db = null;
+  function dbOpen(){
     return new Promise(function(resolve,reject){
+      if(db) return resolve(db);
       if(!window.indexedDB){ reject(new Error('IndexedDB unavailable')); return; }
       var req=indexedDB.open(DB_NAME,DB_VERSION);
       req.onupgradeneeded=function(e){
         var d=e.target.result;
         if(!d.objectStoreNames.contains(STORE)){
           var os=d.createObjectStore(STORE,{keyPath:'id'});
-          os.createIndex('expiry_date','expiry_date',{unique:false});
+          os.createIndex('expiry','expiry_date',{unique:false});
+          os.createIndex('brand','brand',{unique:false});
         }
       };
-      req.onsuccess=function(){ resolve(req.result); };
+      req.onsuccess=function(){ db=req.result; resolve(db); };
       req.onerror=function(){ reject(req.error); };
     });
   }
+  var openDB = dbOpen; // Alias for backward compatibility
+
   function tx(mode){ return db.transaction(STORE,mode).objectStore(STORE); }
+
   function dbAll(){
-    return new Promise(function(resolve,reject){
-      var r=tx('readonly').getAll();
-      r.onsuccess=function(){ resolve(r.result||[]); };
-      r.onerror=function(){ reject(r.error); };
+    return dbOpen().then(function(d){
+      return new Promise(function(resolve,reject){
+        var r=tx('readonly').getAll();
+        r.onsuccess=function(){ resolve(r.result||[]); };
+        r.onerror=function(){ reject(r.error); };
+      });
     });
   }
+
   function dbPut(rec){
-    return new Promise(function(resolve,reject){
-      var r=tx('readwrite').put(rec);
-      r.onsuccess=function(){ resolve(rec); };
-      r.onerror=function(){ reject(r.error); };
+    return dbOpen().then(function(d){
+      rec.id = rec.id || ('coupon-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9));
+      rec.created_at = rec.created_at || new Date().toISOString();
+      rec.updated_at = new Date().toISOString();
+      return new Promise(function(resolve,reject){
+        var r=tx('readwrite').put(rec);
+        r.onsuccess=function(){ resolve(rec.id); };
+        r.onerror=function(){ reject(r.error); };
+      });
     });
   }
+
   function dbDelete(id){
-    return new Promise(function(resolve,reject){
-      var r=tx('readwrite').delete(id);
-      r.onsuccess=function(){ resolve(); };
-      r.onerror=function(){ reject(r.error); };
+    return dbOpen().then(function(d){
+      return new Promise(function(resolve,reject){
+        var r=tx('readwrite').delete(id);
+        r.onsuccess=function(){ resolve(); };
+        r.onerror=function(){ reject(r.error); };
+      });
     });
+  }
+
+  function dbClose(){
+    if(db){
+      db.close();
+      db = null;
+    }
+    return Promise.resolve();
   }
 
   /* ---------------- toast ---------------- */
