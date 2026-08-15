@@ -796,43 +796,57 @@
     }));
   });
 
-  $('exportBtn').addEventListener('click',function(){
-    if(!state.coupons.length){ toast('Nothing to export yet'); return; }
+  function exportJSON(){
+    if(!state.coupons.length){ toast('Nothing to export yet'); return false; }
     var payload={ app:'coupon-wallet', version:1, exported_at:new Date().toISOString(), coupons:state.coupons };
     var ok=download('coupon-wallet-backup-'+todayISO()+'.json',JSON.stringify(payload,null,2),'application/json');
     toast(ok?'Backup downloaded — keep it somewhere safe':'Could not create the backup file');
-  });
+    return ok;
+  }
+
+  function importJSON(file){
+    return new Promise(function(resolve, reject){
+      if(!file) return reject(new Error("No file provided"));
+      var reader=new FileReader();
+      reader.onload=function(){
+        var parsed;
+        try{ parsed=JSON.parse(reader.result); }
+        catch(err){ toast('That file is not a valid backup'); return reject(err); }
+        var incoming=(parsed&&parsed.coupons)||(Array.isArray(parsed)?parsed:null);
+        if(!Array.isArray(incoming)){ toast('That file is not a valid backup'); return reject(new Error("Invalid format")); }
+
+        var existing={};
+        state.coupons.forEach(function(c){ existing[(c.brand+'|'+c.code).toLowerCase()]=true; });
+        var added=0, skipped=0;
+        var writes=incoming.filter(function(c){ return c&&c.brand&&c.code&&c.expiry_date; }).map(function(c){
+          var key=(c.brand+'|'+c.code).toLowerCase();
+          if(existing[key]){ skipped++; return null; }
+          existing[key]=true; added++;
+          c.id=c.id||uid();
+          return dbPut(c).then(function(){ state.coupons.push(c); });
+        }).filter(Boolean);
+
+        Promise.all(writes).then(function(){
+          render();
+          toast('Imported '+added+' coupon'+(added===1?'':'s')+(skipped?' · '+skipped+' already here':''));
+          resolve({ added: added, skipped: skipped });
+        }).catch(function(err){
+          toast('Import partly failed');
+          reject(err);
+        });
+      };
+      reader.onerror=function(err){ reject(err); };
+      reader.readAsText(file);
+    });
+  }
+
+  $('exportBtn').addEventListener('click', exportJSON);
 
   $('importBtn').addEventListener('click',function(){ $('importFile').click(); });
   $('importFile').addEventListener('change',function(e){
     var file=e.target.files&&e.target.files[0];
     if(!file) return;
-    var reader=new FileReader();
-    reader.onload=function(){
-      var parsed;
-      try{ parsed=JSON.parse(reader.result); }
-      catch(err){ toast('That file is not a valid backup'); return; }
-      var incoming=(parsed&&parsed.coupons)||(Array.isArray(parsed)?parsed:null);
-      if(!Array.isArray(incoming)){ toast('That file is not a valid backup'); return; }
-
-      var existing={};
-      state.coupons.forEach(function(c){ existing[(c.brand+'|'+c.code).toLowerCase()]=true; });
-      var added=0, skipped=0;
-      var writes=incoming.filter(function(c){ return c&&c.brand&&c.code&&c.expiry_date; }).map(function(c){
-        var key=(c.brand+'|'+c.code).toLowerCase();
-        if(existing[key]){ skipped++; return null; }
-        existing[key]=true; added++;
-        c.id=c.id||uid();
-        return dbPut(c).then(function(){ state.coupons.push(c); });
-      }).filter(Boolean);
-
-      Promise.all(writes).then(function(){
-        render();
-        toast('Imported '+added+' coupon'+(added===1?'':'s')+(skipped?' · '+skipped+' already here':''));
-      }).catch(function(){ toast('Import partly failed'); });
-    };
-    reader.readAsText(file);
-    e.target.value='';
+    importJSON(file).finally(function(){ e.target.value=''; });
   });
 
   /* ---------------- list interactions ---------------- */
