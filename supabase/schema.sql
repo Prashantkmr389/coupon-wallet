@@ -1,4 +1,4 @@
--- Coupon Wallet Supabase Postgres Schema (Phase 2)
+-- Coupon Wallet Supabase Postgres Schema (Phase 2 & 3)
 -- Enables Row Level Security (RLS) so each user only sees and mutates their own coupons.
 
 CREATE TABLE IF NOT EXISTS public.coupons (
@@ -20,15 +20,27 @@ CREATE TABLE IF NOT EXISTS public.coupons (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Web Push Subscriptions Table (Phase 3)
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS coupons_user_id_idx ON public.coupons(user_id);
 CREATE INDEX IF NOT EXISTS coupons_expiry_date_idx ON public.coupons(expiry_date);
 CREATE INDEX IF NOT EXISTS coupons_brand_idx ON public.coupons(brand);
+CREATE INDEX IF NOT EXISTS push_subs_user_id_idx ON public.push_subscriptions(user_id);
 
 -- Enable Row Level Security
 ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies
+-- Coupons RLS Policies
 CREATE POLICY "Users can view their own coupons"
   ON public.coupons FOR SELECT
   USING (auth.uid() = user_id);
@@ -43,4 +55,17 @@ CREATE POLICY "Users can update their own coupons"
 
 CREATE POLICY "Users can delete their own coupons"
   ON public.coupons FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Push Subscriptions RLS Policies
+CREATE POLICY "Users can view their own push subscriptions"
+  ON public.push_subscriptions FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own push subscriptions"
+  ON public.push_subscriptions FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own push subscriptions"
+  ON public.push_subscriptions FOR DELETE
   USING (auth.uid() = user_id);
