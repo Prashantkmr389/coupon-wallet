@@ -8,6 +8,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseTextRuleBased } from "../../../shared/coupon-parser.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -21,48 +22,6 @@ interface ParsedCoupon {
   source_app: string;
   expiry_date: string;
   notes: string;
-}
-
-// Same rule-based extractor as the client and parse-coupon, duplicated because
-// Edge Functions deploy independently with no shared module directory.
-export function parseTextRuleBased(text: string): ParsedCoupon {
-  const clean = text.trim();
-
-  const codeMatch = clean.match(/\b(code|use|promo|coupon)?\s*:?\s*([A-Z0-9]{4,15})\b/) ||
-                    clean.match(/\b([A-Z0-9]{4,15})\b/);
-  const code = codeMatch ? (codeMatch[2] || codeMatch[1]) : '';
-
-  const discountMatch = clean.match(/(₹|rs\.?|\$)\s*\d+(\s*off|\s*cashback)?|\b\d+%\s*off/i);
-  const discount_text = discountMatch ? discountMatch[0] : '';
-
-  const minMatch = clean.match(/(min\.?|minimum)\s*(order|purchase|spend)?\s*:?\s*(₹|rs\.?|\$)?\s*(\d+)/i);
-  const min_order_value = minMatch ? parseInt(minMatch[4], 10) : null;
-
-  const isoMatch = clean.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-  const dmyMatch = !isoMatch && clean.match(/\b(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})\b/);
-
-  let expiry_date = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-  if (isoMatch) {
-    expiry_date = isoMatch[0];
-  } else if (dmyMatch) {
-    const day = dmyMatch[1].padStart(2, '0');
-    const month = dmyMatch[2].padStart(2, '0');
-    expiry_date = `${dmyMatch[3]}-${month}-${day}`;
-  }
-
-  const brandMatch = clean.match(/\b(Amazon|Myntra|MakeMyTrip|Zomato|Swiggy|Flipkart|Uber|Ola)/i);
-  const brand = brandMatch ? brandMatch[0] : 'Other';
-
-  return {
-    brand,
-    code: code.toUpperCase(),
-    discount_text: discount_text || 'Special Offer',
-    min_order_value,
-    category: 'Other',
-    source_app: 'Email',
-    expiry_date,
-    notes: clean.slice(0, 150)
-  };
 }
 
 // Crude HTML → text so web-format mails still hit the parser.
@@ -108,6 +67,7 @@ serve(async (req) => {
     }
 
     const parsed = parseTextRuleBased(text || htmlToText(html));
+    parsed.source_app = 'Email'; // arrived via the forwarding address, not an SMS
     if (!parsed.code) {
       return new Response(JSON.stringify({ error: "Could not extract a coupon code from the mail" }), { status: 422 });
     }

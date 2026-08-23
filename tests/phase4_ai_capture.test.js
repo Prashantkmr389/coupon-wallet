@@ -2,57 +2,12 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-function parseTextRuleBased(text) {
-  const clean = String(text || '').trim();
-
-  // Code extraction
-  const codeMatch = clean.match(/\b(code|use|promo|coupon)?\s*:?\s*([A-Z0-9]{4,15})\b/) ||
-                    clean.match(/\b([A-Z0-9]{4,15})\b/);
-  const code = codeMatch ? (codeMatch[2] || codeMatch[1]) : '';
-
-  // Discount text
-  const discountMatch = clean.match(/(₹|rs\.?|\$)\s*\d+(\s*off|\s*cashback)?|\b\d+%\s*off/i);
-  const discount_text = discountMatch ? discountMatch[0] : '';
-
-  // Min order value
-  const minMatch = clean.match(/(min\.?|minimum)\s*(order|purchase|spend)?\s*:?\s*(₹|rs\.?|\$)?\s*(\d+)/i);
-  const min_order_value = minMatch ? parseInt(minMatch[4], 10) : null;
-
-  // Expiry date YYYY-MM-DD or DD/MM/YYYY
-  const isoMatch = clean.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-  const dmyMatch = !isoMatch && clean.match(/\b(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})\b/);
-
-  let expiry_date = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-  if (isoMatch) {
-    expiry_date = isoMatch[0];
-  } else if (dmyMatch) {
-    const day = dmyMatch[1].padStart(2, '0');
-    const month = dmyMatch[2].padStart(2, '0');
-    expiry_date = `${dmyMatch[3]}-${month}-${day}`;
-  }
-
-  // Brand heuristic (merchant the coupon is redeemed at)
-  const brandMatch = clean.match(/\b(Amazon|Myntra|MakeMyTrip|Zomato|Swiggy|Flipkart|Uber|Ola)/i);
-  const brand = brandMatch ? brandMatch[0] : 'Other';
-
-  // Source app (where the SMS/notification came from), kept separate from brand
-  const sourceMatch = clean.match(/\b(Cred|Paytm|PhonePe|GPay|Google Pay)\b/i);
-  const source_app = sourceMatch ? sourceMatch[0] : 'SMS / Text';
-
-  return {
-    brand,
-    code: code.toUpperCase(),
-    discount_text: discount_text || 'Special Offer',
-    min_order_value,
-    category: 'Other',
-    source_app,
-    expiry_date,
-    notes: clean.slice(0, 150)
-  };
-}
-
-function runTests() {
+async function runTests() {
   console.log("Running Phase 4 AI Capture tests...");
+
+  // Exercise the REAL parser — the exact module shared by index.html,
+  // parse-coupon, and inbound-coupon.
+  const { parseTextRuleBased } = await import('../shared/coupon-parser.mjs');
 
   // Test Sample 1: Cred SMS
   const sms1 = "Cred Alert: Use code SAVE500 on Amazon to get ₹500 off on min order ₹2000. Valid till 2026-08-25.";
@@ -62,6 +17,8 @@ function runTests() {
   assert.strictEqual(res1.code, "SAVE500");
   assert.strictEqual(res1.min_order_value, 2000);
   assert.strictEqual(res1.expiry_date, "2026-08-25");
+  assert.match(res1.discount_text, /₹500/);
+  assert.strictEqual(res1.source_app, "Cred");
 
   // Test Sample 2: Myntra Email
   const sms2 = "Exclusive Offer! Code MYNTRA50 gets you 50% off on your next purchase. Exp: 30/12/2026";
@@ -71,19 +28,38 @@ function runTests() {
   assert.strictEqual(res2.code, "MYNTRA50");
   assert.strictEqual(res2.discount_text.toLowerCase(), "50% off");
   assert.strictEqual(res2.expiry_date, "2026-12-30");
+  assert.strictEqual(res2.source_app, "SMS / Text", "no source app mentioned → default");
 
-  // Verify Edge Function files exist
+  // Test Sample 3: nothing extractable → sane defaults, no crash
+  const res3 = parseTextRuleBased("hello there friend");
+  assert.ok(res3.expiry_date.match(/^\d{4}-\d{2}-\d{2}$/), "default expiry must be ISO");
+  assert.strictEqual(res3.brand, "Other");
+  assert.strictEqual(res3.notes.length <= 150, true);
+
+  // Single source of truth wiring:
   const root = path.join(__dirname, '..');
   const parseFnPath = path.join(root, 'supabase', 'functions', 'parse-coupon', 'index.ts');
   assert(fs.existsSync(parseFnPath), "supabase/functions/parse-coupon/index.ts must exist");
+  const inboundFnPath = path.join(root, 'supabase', 'functions', 'inbound-coupon', 'index.ts');
+  assert(fs.existsSync(inboundFnPath), "supabase/functions/inbound-coupon/index.ts must exist");
 
-  // Verify index.html UI integration
+  for (const fnPath of [parseFnPath, inboundFnPath]) {
+    const src = fs.readFileSync(fnPath, 'utf8');
+    assert(src.includes("shared/coupon-parser.mjs"), `${path.basename(path.dirname(fnPath))} must import the shared parser`);
+    assert(!src.includes("codeMatch = clean.match"), `${path.basename(path.dirname(fnPath))} must not carry a copied parser body`);
+  }
+
+  // Verify index.html UI integration (imports the module rather than defining it)
   const indexPath = path.join(root, 'index.html');
   const indexContent = fs.readFileSync(indexPath, 'utf8');
   assert(indexContent.includes('id="aiBtn"'), "index.html must contain aiBtn button");
-  assert(indexContent.includes('parseTextRuleBased'), "index.html must contain parseTextRuleBased");
+  assert(indexContent.includes("from './shared/coupon-parser.mjs'"), "index.html must import the shared parser");
+  assert(!indexContent.includes("function parseTextRuleBased"), "index.html must not redefine the parser");
 
   console.log("✅ All Phase 4 AI Capture tests passed!");
 }
 
-runTests();
+runTests().catch(err => {
+  console.error("❌ Phase 4 tests failed:", err);
+  process.exit(1);
+});

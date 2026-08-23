@@ -2,13 +2,17 @@
    App-shell caching only. Coupon data lives in IndexedDB and is
    never cached here — bumping CACHE never touches user data. */
 
-const CACHE = 'coupon-wallet-v1';
+const CACHE = 'coupon-wallet-v2';
 const SHELL = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './shared/expiry.mjs',
+  './shared/savings.mjs',
+  './shared/ics.mjs',
+  './shared/coupon-parser.mjs'
 ];
 
 self.addEventListener('install', event => {

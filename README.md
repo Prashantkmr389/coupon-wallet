@@ -37,7 +37,8 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 ## Repository Structure
 
 ```
-index.html                              the entire app (UI, logic, Supabase hybrid adapter, Web Push UI, household wallet)
+index.html                              the app UI + glue; pure logic lives in shared/*.mjs
+shared/                                 modules imported by the app AND the tests (expiry, savings, ICS, parser)
 manifest.json                           PWA metadata
 sw.js                                   service worker (app-shell caching, Web Push event handlers)
 supabase/schema.sql                     Postgres schema (coupons, push_subscriptions, households + RLS)
@@ -101,17 +102,19 @@ The extension re-syncs every ~20 minutes and refreshes expired tokens on its own
 
 ## Testing
 
-Run all unit and integration test suites:
-
 ```bash
-npm test
+npm test    # 15 suites, zero network access
 ```
+
+Suites import the same `shared/*.mjs` modules the app ships — expiry math, savings totals, ICS generation and the coupon parser are tested as the exact code that runs in production, not copies.
 
 ---
 
 ## Deploy
 
-The app is static — any static host works. Two easy options:
+Full step-by-step guide with secrets, cron schedules and a per-feature verification checklist: **[DEPLOY.md](DEPLOY.md)**.
+
+Quick start:
 
 **Netlify Drop (fastest)**
 1. Go to <https://app.netlify.com/drop>

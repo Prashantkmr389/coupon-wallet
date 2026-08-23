@@ -358,13 +358,19 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+import { daysUntil, getExpireStatus, statusOf, stampFor, daysLabel, fmtDate } from './shared/expiry.mjs';
+import { parseSavedAmount, totalSaved, fmtMoney } from './shared/savings.mjs';
+import { buildICS } from './shared/ics.mjs';
+import { parseTextRuleBased } from './shared/coupon-parser.mjs';
+
 (function(){
   "use strict";
 
   /* ============================================================
      Data model — field names deliberately match the future
      Postgres schema so Phase 2 is a storage swap, not a rewrite.
+     Pure logic lives in shared/*.mjs so tests exercise this exact code.
      ============================================================ */
   var CATEGORIES = ['Flights','Hotels','Shopping','Food','Recharge & Bills','Groceries','Entertainment','Other'];
   var SOURCE_APPS = ['Cred','Google Pay','PhonePe','Paytm','Myntra','Flipkart','Amazon','Swiggy','Zomato','Bank / Card','Other'];
@@ -401,60 +407,13 @@
     var n=new Date();
     return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
   }
-  function daysUntil(dateStr){
-    var p=String(dateStr).split('-').map(Number);
-    var exp=Date.UTC(p[0],p[1]-1,p[2]);
-    var n=new Date();
-    var today=Date.UTC(n.getFullYear(),n.getMonth(),n.getDate());
-    return Math.round((exp-today)/86400000);
-  }
-  function getExpireStatus(c){
-    if(c.used && !c.reusable) return { status: 'used', daysUntilExpiry: -1 };
-    var d=daysUntil(c.expiry_date);
-    if(d<0) return { status: 'expired', daysUntilExpiry: d };
-    if(d===0) return { status: 'expires-today', daysUntilExpiry: 0 };
-    if(d<=7) return { status: 'expiring-soon', daysUntilExpiry: d };
-    return { status: 'active', daysUntilExpiry: d };
-  }
-  function statusOf(c){
-    var res = getExpireStatus(c);
-    if(res.status === 'expiring-soon' || res.status === 'expires-today') return 'soon';
-    return res.status;
-  }
-  function stampFor(s){ return {active:'Active',soon:'Expiring soon',expired:'Expired',used:'Used'}[s]; }
-  function daysLabel(c){
-    if(c.used && !c.reusable) return 'Marked used';
-    var d=daysUntil(c.expiry_date);
-    if(d<0) return 'Expired '+Math.abs(d)+'d ago';
-    if(d===0) return 'Expires today';
-    if(d===1) return '1 day left';
-    return d+' days left';
-  }
-  function fmtDate(dateStr){
-    var p=String(dateStr).split('-').map(Number);
-    var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return p[2]+' '+months[p[1]-1]+' '+p[0];
-  }
+  // daysUntil / getExpireStatus / statusOf / stampFor / daysLabel / fmtDate
+  // are imported from shared/expiry.mjs.
 
-  /* ---------------- Savings Tracker (Phase 6) ----------------
-     "₹ saved" = flat discount amounts summed over coupons actually
-     marked used. Percent-off offers can't be turned into rupees
-     without an order value, so they contribute nothing.           */
-  function parseSavedAmount(text){
-    if(!text) return 0;
-    var m=String(text).match(/(?:₹|rs\.?\s*|\$)\s*([\d,]+(?:\.\d+)?)/i);
-    if(!m) return 0;
-    var n=parseFloat(m[1].replace(/,/g,''));
-    return isNaN(n)?0:n;
-  }
-  function totalSaved(){
-    return state.coupons.reduce(function(sum,c){
-      return sum+(c.used?parseSavedAmount(c.discount_text):0);
-    },0);
-  }
-  function fmtMoney(n){
-    return n.toLocaleString('en-IN');
-  }
+  /* ---------------- Savings Tracker ----------------
+     Imported from shared/savings.mjs: "₹ saved" = flat discount amounts
+     summed over coupons actually marked used. Percent-off offers can't be
+     turned into rupees without an order value, so they contribute nothing. */
 
   /* ---------------- Supabase & Hybrid Storage ---------------- */
   var supabaseClient = null;
@@ -674,76 +633,8 @@
      Reminders without a backend: we hand the schedule to the
      user's own calendar, which is already synced and already
      trusted with notifications. Three alarms per coupon:
-     7 days out, 1 day out, and 9am on expiry day.            */
-  function icsEscape(t){
-    return String(t==null?'':t).replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n');
-  }
-  // RFC 5545 limits lines to 75 OCTETS, not characters — and '₹' is
-  // three bytes in UTF-8, so folding by string length overflows and
-  // some calendar apps reject the whole file. Count bytes instead,
-  // and never split in the middle of a multi-byte character.
-  function byteLen(s){
-    return (typeof TextEncoder!=='undefined') ? new TextEncoder().encode(s).length
-                                              : unescape(encodeURIComponent(s)).length;
-  }
-  function fold(line){
-    if(byteLen(line)<=75) return line;
-    var out='', cur='', limit=75, pieces=[];
-    for(var i=0;i<line.length;i++){
-      var ch=line[i];
-      // Keep surrogate pairs (emoji) intact.
-      if(ch.charCodeAt(0)>=0xD800 && ch.charCodeAt(0)<=0xDBFF && i+1<line.length){
-        ch+=line[++i];
-      }
-      if(byteLen(cur+ch)>limit){ pieces.push(cur); cur=ch; limit=74; } // continuation lines lose 1 octet to the leading space
-      else cur+=ch;
-    }
-    pieces.push(cur);
-    out=pieces[0];
-    for(var j=1;j<pieces.length;j++) out+='\r\n '+pieces[j];
-    return out;
-  }
-  function icsStamp(){
-    return new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
-  }
-  function vevent(c){
-    var d=String(c.expiry_date).replace(/-/g,'');
-    var summary='Coupon expires: '+c.brand+' ('+c.code+')';
-    var descParts=[];
-    if(c.discount_text) descParts.push(c.discount_text);
-    if(c.min_order_value) descParts.push('Min order: Rs '+c.min_order_value);
-    descParts.push('Code: '+c.code);
-    if(c.source_app) descParts.push('From: '+c.source_app);
-    if(c.notes) descParts.push(c.notes);
-    if(c.redeem_url) descParts.push(c.redeem_url);
-
-    var lines=[
-      'BEGIN:VEVENT',
-      'UID:'+c.id+'@coupon-wallet',
-      'DTSTAMP:'+icsStamp(),
-      // Floating local time — no timezone conversion surprises.
-      'DTSTART:'+d+'T090000',
-      'DTEND:'+d+'T093000',
-      fold('SUMMARY:'+icsEscape(summary)),
-      fold('DESCRIPTION:'+icsEscape(descParts.join('\n'))),
-      'TRANSP:TRANSPARENT'
-    ];
-    if(c.redeem_url) lines.push(fold('URL:'+icsEscape(c.redeem_url)));
-
-    [['-P7D','7 days left'],['-P1D','Expires tomorrow'],['PT0S','Expires today']].forEach(function(a){
-      lines.push('BEGIN:VALARM','ACTION:DISPLAY',
-        fold('DESCRIPTION:'+icsEscape(c.brand+' coupon '+c.code+' — '+a[1])),
-        'TRIGGER:'+a[0],'END:VALARM');
-    });
-    lines.push('END:VEVENT');
-    return lines;
-  }
-  function buildICS(coupons){
-    var out=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Coupon Wallet//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
-    coupons.forEach(function(c){ out=out.concat(vevent(c)); });
-    out.push('END:VCALENDAR');
-    return out.join('\r\n');
-  }
+     7 days out, 1 day out, and 9am on expiry day.
+     buildICS and friends are imported from shared/ics.mjs. */
   function download(filename,content,mime){
     try{
       var blob=new Blob([content],{type:mime});
@@ -769,7 +660,7 @@
     var soon=live.filter(function(c){ return statusOf(c)==='soon'; }).length;
     var html='<strong>'+live.length+'</strong> live coupon'+(live.length===1?'':'s');
     if(soon) html+=' · <span class="warn">'+soon+' expiring within 7 days</span>';
-    var saved=totalSaved();
+    var saved=totalSaved(state.coupons);
     if(saved>0) html+=' · <strong>₹'+fmtMoney(saved)+'</strong> saved';
     statsEl.innerHTML=html;
   }
@@ -1355,54 +1246,8 @@
     aiBackdrop.hidden = true;
   }
 
-  function parseTextRuleBased(text){
-    var clean = String(text || '').trim();
-
-    // Code extraction
-    var codeMatch = clean.match(/\b(code|use|promo|coupon)?\s*:?\s*([A-Z0-9]{4,15})\b/) ||
-                      clean.match(/\b([A-Z0-9]{4,15})\b/);
-    var code = codeMatch ? (codeMatch[2] || codeMatch[1]) : '';
-
-    // Discount text
-    var discountMatch = clean.match(/(₹|rs\.?|\$)\s*\d+(\s*off|\s*cashback)?|\b\d+%\s*off/i);
-    var discount_text = discountMatch ? discountMatch[0] : '';
-
-    // Min order value
-    var minMatch = clean.match(/(min\.?|minimum)\s*(order|purchase|spend)?\s*:?\s*(₹|rs\.?|\$)?\s*(\d+)/i);
-    var min_order_value = minMatch ? parseInt(minMatch[4], 10) : null;
-
-    // Expiry date YYYY-MM-DD or DD/MM/YYYY
-    var isoMatch = clean.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-    var dmyMatch = !isoMatch && clean.match(/\b(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})\b/);
-
-    var expiry_date = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
-    if (isoMatch) {
-      expiry_date = isoMatch[0];
-    } else if (dmyMatch) {
-      var day = dmyMatch[1].padStart(2, '0');
-      var month = dmyMatch[2].padStart(2, '0');
-      expiry_date = dmyMatch[3] + '-' + month + '-' + day;
-    }
-
-    // Brand heuristic (merchant the coupon is redeemed at)
-    var brandMatch = clean.match(/\b(Amazon|Myntra|MakeMyTrip|Zomato|Swiggy|Flipkart|Uber|Ola)/i);
-    var brand = brandMatch ? brandMatch[0] : 'Other';
-
-    // Source app (where the SMS/notification came from), kept separate from brand
-    var sourceMatch = clean.match(/\b(Cred|Paytm|PhonePe|GPay|Google Pay)\b/i);
-    var source_app = sourceMatch ? sourceMatch[0] : 'SMS / Text';
-
-    return {
-      brand: brand,
-      code: code.toUpperCase(),
-      discount_text: discount_text || 'Special Offer',
-      min_order_value: min_order_value,
-      category: 'Other',
-      source_app: source_app,
-      expiry_date: expiry_date,
-      notes: clean.slice(0, 150)
-    };
-  }
+  // parseTextRuleBased is imported from shared/coupon-parser.mjs — the
+  // exact code the parse-coupon / inbound-coupon Edge Functions run.
 
   aiBtn.addEventListener('click', openAiModal);
   $('aiCancelBtn').addEventListener('click', closeAiModal);

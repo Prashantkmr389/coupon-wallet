@@ -2,20 +2,11 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-// ---- Savings tracker logic (mirrors index.html parseSavedAmount/totalSaved) ----
-function parseSavedAmount(text) {
-  if (!text) return 0;
-  const m = String(text).match(/(?:₹|rs\.?\s*|\$)\s*([\d,]+(?:\.\d+)?)/i);
-  if (!m) return 0;
-  const n = parseFloat(m[1].replace(/,/g, ''));
-  return isNaN(n) ? 0 : n;
-}
-function totalSaved(coupons) {
-  return coupons.reduce((sum, c) => sum + (c.used ? parseSavedAmount(c.discount_text) : 0), 0);
-}
-
 async function runTests() {
   console.log("Running Phase 6 Household & Savings Tracker tests...");
+
+  // Exercise the app's REAL savings math (shared/savings.mjs).
+  const { parseSavedAmount, totalSaved, fmtMoney } = await import('../shared/savings.mjs');
 
   const root = path.join(__dirname, '..');
 
@@ -78,8 +69,9 @@ async function runTests() {
   assert(indexContent.includes('id="hhModalBackdrop"'), "index.html must have the household modal");
   assert(indexContent.includes("claimPendingInvites"), "sign-in must auto-claim pending invites by email");
   assert(indexContent.includes("syncHousehold()"), "auth state changes must refresh household state");
-  assert(indexContent.includes("parseSavedAmount"), "savings parser must exist in the app");
-  assert(indexContent.includes("toLocaleString('en-IN')"), "₹-saved figure must use Indian digit grouping");
+  assert(indexContent.includes("parseSavedAmount"), "savings parser must be referenced by the app");
+  assert(indexContent.includes("from './shared/savings.mjs'"), "app must import the shared savings module");
+  assert.strictEqual(fmtMoney(1234567), '12,34,567', "₹-saved figure must use Indian digit grouping");
   assert(indexContent.includes("used_by=usedBy||null"), "mark-as-used must record who used it");
   assert(indexContent.includes("c.used_by=null;"), "un-use must clear used_by");
   assert(indexContent.includes("by '+esc(c.used_by)"), "tickets must show who used a shared coupon");
