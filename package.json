@@ -7,7 +7,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "node tests/task1_1.test.js && node tests/task1_2.test.js && node tests/task2_1.test.js && node tests/task2_2.test.js && node tests/task3_1.test.js && node tests/task3_2.test.js && node tests/task3_3.test.js && node tests/task3_4.test.js && node tests/phase2_schema.test.js && node tests/phase2_auth_storage.test.js && node tests/phase3_digest_push.test.js && node tests/phase4_ai_capture.test.js && node tests/phase6_household_savings.test.js"
+    "test": "node tests/task1_1.test.js && node tests/task1_2.test.js && node tests/task2_1.test.js && node tests/task2_2.test.js && node tests/task3_1.test.js && node tests/task3_2.test.js && node tests/task3_3.test.js && node tests/task3_4.test.js && node tests/phase2_schema.test.js && node tests/phase2_auth_storage.test.js && node tests/phase3_digest_push.test.js && node tests/phase4_ai_capture.test.js && node tests/phase5_extension.test.js && node tests/phase6_household_savings.test.js"
   },
   "repository": {
     "type": "git",

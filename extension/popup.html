@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Coupon Wallet</title>
+<style>
+  :root{
+    --bg:#1B2430; --bg-2:#232D3B; --paper:#F6F1E4; --ink:#241F16; --ink-soft:#5B5344;
+    --active:#2F6E56; --soon:#B4791F;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; width:320px; max-height:480px; overflow-y:auto;
+    background:var(--bg); color:var(--paper);
+    font-family:-apple-system,'Segoe UI',sans-serif; font-size:13px;
+  }
+  header{ padding:12px 14px 8px; display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  header h1{ font-size:14px; margin:0; }
+  .status{ font-size:10.5px; opacity:0.7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
+  .host{ margin:0 14px 8px; font-size:11px; font-family:ui-monospace,monospace; color:rgba(246,241,228,0.6); word-break:break-all; }
+  .empty{ padding:26px 18px; text-align:center; color:rgba(246,241,228,0.65); line-height:1.5; }
+  .coupon{ background:var(--paper); color:var(--ink); border-radius:10px; margin:0 10px 8px; padding:10px 12px; }
+  .top{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .brand{ font-weight:700; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .days{ flex:none; font-size:10.5px; font-weight:600; color:var(--soon); }
+  .discount{ margin:2px 0 6px; font-size:11.5px; color:var(--ink-soft); }
+  .bottom{ display:flex; align-items:center; gap:6px; }
+  .code-btn{
+    flex:1; text-align:left; cursor:pointer; border:none; border-radius:6px;
+    background:rgba(36,31,22,0.08); padding:6px 9px;
+    font-family:ui-monospace,monospace; font-weight:700; font-size:12px; color:var(--ink);
+    word-break:break-all;
+  }
+  .code-btn:hover{ background:rgba(36,31,22,0.14); }
+  .use-link{ font-size:11px; text-decoration:none; color:var(--active); font-weight:600; padding:6px 4px; white-space:nowrap; }
+  footer{ padding:6px 14px 12px; display:flex; justify-content:space-between; }
+  footer a, footer button{
+    background:none; border:none; padding:0; font-size:11px; color:rgba(246,241,228,0.6);
+    text-decoration:underline; cursor:pointer;
+  }
+  footer a:hover, footer button:hover{ color:var(--paper); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎟 Coupon Wallet</h1>
+  <span id="status" class="status"></span>
+</header>
+<p id="host" class="host"></p>
+<div id="list"></div>
+<footer>
+  <button id="syncBtn">Sync now</button>
+  <a id="optionsLink" href="#">Settings</a>
+</footer>
+<script src="popup.js"></script>
+</body>
+</html>
