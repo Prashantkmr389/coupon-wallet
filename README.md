@@ -1,13 +1,13 @@
-# Coupon Wallet (Phases 1, 2, & 3)
+# Coupon Wallet — Phases 1–6 complete
 
-A local-first coupon organiser with optional cross-device cloud sync via Supabase, weekly email digest summaries, and browser web push notifications. No complex setup required.
+A local-first coupon organiser with optional cross-device cloud sync via Supabase, weekly email digest summaries, browser web push notifications, AI-assisted capture, a shared household wallet with a ₹-saved tracker, and a Chrome extension that surfaces coupons while you shop. No complex setup required.
 Coupons live in IndexedDB on the device and sync seamlessly with your Supabase account when signed in; reminders are delegated to your calendar, weekly digest email, and browser push notifications.
 
 Implements the specification and architecture recorded in `ADR-0001` and `2026-08-15-coupon-wallet-phases.md`.
 
 ---
 
-## Features (Phases 1–3)
+## Features
 
 | Feature | Notes |
 |---|---|
@@ -19,6 +19,11 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 | **1-Click Local to Cloud Migration** | Automatically syncs local IndexedDB coupons to your cloud account upon sign-in |
 | **Weekly Email Digest (Phase 3)** | Scheduled Supabase Edge Function sends a Monday 9am email summarizing coupons expiring within 7 days |
 | **Browser Web Push Nudges (Phase 3)** | Receive native browser push notifications when coupons are due |
+| **AI Coupon Capture (Phase 4)** | Paste an SMS/email → Edge Function (Claude) extracts fields and prefills the form; offline rule-based fallback |
+| **Shared Household Wallet (Phase 6)** | Invite family by email; everyone sees the same coupons via RLS-filtered access |
+| **₹-Saved Tracker (Phase 6)** | Running total of flat discounts across used coupons, shown in the stats line |
+| **Coupon Forwarding Email (Phase 6)** | Mail sent to `wallet+<token>@your-domain.com` is parsed and added to the household wallet automatically |
+| **Chrome Extension (Phase 5)** | Toolbar badge "🎟 N" on matching retailer tabs; popup lists unused coupons with one-click code copy |
 | **Hybrid Storage Adapter** | Operates cloud-first when signed in, falling back gracefully to IndexedDB when offline/guest |
 | JSON export / import | Backup and manual device transfer capability |
 | Duplicate detection | Warns on same code + same brand; second Save overrides |
@@ -32,12 +37,16 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 ## Repository Structure
 
 ```
-index.html                              the entire app (UI, logic, Supabase hybrid adapter, Web Push UI)
+index.html                              the entire app (UI, logic, Supabase hybrid adapter, Web Push UI, household wallet)
 manifest.json                           PWA metadata
 sw.js                                   service worker (app-shell caching, Web Push event handlers)
-supabase/schema.sql                     Postgres database schema (coupons & push_subscriptions + RLS)
+supabase/schema.sql                     Postgres schema (coupons, push_subscriptions, households + RLS)
 supabase/functions/weekly-digest/      Supabase Edge Function for Monday 9am email digests
-tests/                                  Automated test suites (11/11 test files)
+supabase/functions/parse-coupon/       Supabase Edge Function for AI coupon capture
+supabase/functions/inbound-coupon/     Supabase Edge Function: forwarding-email webhook → parsed coupon
+supabase/functions/household-invite/   Supabase Edge Function: invite emails via Resend
+extension/                              Chrome MV3 extension (badge on matching retailer tabs)
+tests/                                  Automated test suites (14 test files)
 icon-192.png                            home screen icon
 icon-512.png                            splash / store icon
 icon-maskable-512.png                   Android adaptive icon
@@ -45,15 +54,37 @@ icon-maskable-512.png                   Android adaptive icon
 
 ---
 
-## Supabase Database Setup (Phases 2 & 3)
+## Supabase Database Setup (Phases 2, 3, 4 & 6)
 
-To enable cloud sync and notifications:
+To enable cloud sync, notifications and the household wallet:
 
 1. Create a free project at [Supabase](https://supabase.com).
 2. Open the SQL Editor in Supabase Dashboard and run the contents of [`supabase/schema.sql`](file:///Users/prashant/codebase/coupon-wallet/supabase/schema.sql).
-3. Deploy the Edge Function: `supabase functions deploy weekly-digest`.
+3. Deploy the Edge Functions:
+   ```bash
+   supabase functions deploy weekly-digest
+   supabase functions deploy parse-coupon      # set ANTHROPIC_API_KEY for AI extraction
+   supabase functions deploy inbound-coupon    # set as your email provider's inbound webhook
+   supabase functions deploy household-invite  # optional; needs RESEND_API_KEY to actually send
+   ```
 4. In the app, click **☁️ Sync (Sign In)** and enter your Supabase Project URL, Anon Key, and Email.
 5. Click **🔔 Push Nudges** to enable browser push notifications!
+6. Click **👨‍👩‍👧 Household** to create a shared wallet and invite family members — invites are claimed automatically when the invitee signs in with the invited address.
+
+### Forwarding email setup
+
+Point your email provider's inbound-parse webhook at the `inbound-coupon` function and route mail for `wallet+<token>@your-domain.com` to it. Each household's exact forwarding address is shown inside the **👨‍👩‍👧 Household** modal. Works with any provider that POSTs JSON (`to`, `text`/`html`): SendGrid Inbound Parse, Mailgun Routes, Cloudflare Email Workers.
+
+---
+
+## Chrome Extension Setup (Phase 5)
+
+1. Open `chrome://extensions`, enable **Developer mode**
+2. Click **Load unpacked** → select the [`extension/`](file:///Users/prashant/codebase/coupon-wallet/extension) folder
+3. Click the extension's **Settings**, press **🔌 Connect** — your Coupon Wallet opens in a tab; make sure you're signed in there (☁️ button). The extension borrows that session automatically
+4. Browse to a retailer with unused coupons — the toolbar icon shows a **🎟 N** badge; click it for codes with one-click copy
+
+The extension re-syncs every ~20 minutes and refreshes expired tokens on its own. If badges stop appearing, reconnect from Settings.
 
 ---
 
@@ -97,8 +128,8 @@ python3 -m http.server 8000
 - [x] **Phase 1** — Local-First PWA, IndexedDB, calendar reminders, JSON backup
 - [x] **Phase 2** — Supabase Postgres + magic-link auth, hybrid cross-device sync
 - [x] **Phase 3** — scheduled weekly digest email of expiring coupons & Web Push notifications
-- [ ] **Phase 4** — paste an SMS/email or screenshot, Claude extracts the fields
-- [ ] **Phase 5** — Chrome extension badge when you visit a matching retailer
-- [ ] **Phase 6** — shared household wallet, ₹-saved tracker, forwarding address
+- [x] **Phase 4** — paste an SMS/email or screenshot, Claude extracts the fields
+- [x] **Phase 5** — Chrome extension badge when you visit a matching retailer
+- [x] **Phase 6** — shared household wallet, ₹-saved tracker, forwarding address
 
 

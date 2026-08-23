@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Coupon Wallet",
+  "version": "1.0.0",
+  "description": "Shows your unused Coupon Wallet coupons while you shop — a badge on matching retailer tabs.",
+  "icons": { "128": "icons/icon512.png" },
+  "action": {
+    "default_title": "Coupon Wallet",
+    "default_popup": "popup.html",
+    "default_icon": { "128": "icons/icon512.png" }
+  },
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "permissions": ["storage", "tabs", "alarms", "scripting"],
+  "host_permissions": [
+    "https://*.supabase.co/*",
+    "https://coupoun.netlify.app/*",
+    "http://localhost:8000/*"
+  ]
+}

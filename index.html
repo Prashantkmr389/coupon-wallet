@@ -206,6 +206,17 @@
   }
   .toast button{ background:none; border:none; font-weight:700; color:var(--soon); cursor:pointer; font-size:13px; }
 
+  /* household */
+  .hh-member{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid var(--divider); font-size:13px; }
+  .hh-member:last-child{ border-bottom:none; }
+  .hh-member .who{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
+  .hh-member .who .hint{ display:block; text-transform:uppercase; letter-spacing:0.08em; font-size:9.5px; }
+  .hh-fwd{
+    font-family:'IBM Plex Mono',monospace; font-size:11.5px; background:#fff;
+    border:1px dashed rgba(36,31,22,0.35); border-radius:8px;
+    padding:9px 11px; word-break:break-all; margin:6px 0 14px;
+  }
+
   @media (prefers-reduced-motion:no-preference){
     .modal{ animation:slideUp .18s ease-out; }
     .toast{ animation:fadeUp .18s ease-out; }
@@ -233,6 +244,7 @@
       <button id="authBtn" class="link-btn">☁️ Sync (Sign In)</button>
       <button id="pushBtn" class="link-btn">🔔 Push Nudges</button>
       <button id="aiBtn" class="link-btn">✨ AI Capture</button>
+      <button id="hhBtn" class="link-btn">👨‍👩‍👧 Household</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden>
     </div>
   </header>
@@ -337,6 +349,15 @@
 
 <div id="toast" class="toast" hidden></div>
 
+<div id="hhModalBackdrop" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="hhModalTitle">
+    <h2 id="hhModalTitle">👨‍👩‍👧 Household Wallet</h2>
+    <p class="modal-sub">Share your coupon wallet with family. Everyone sees the same coupons, and marking one used records who used it — feeding the ₹-saved tracker.</p>
+    <div id="hhFormError" class="form-error" hidden></div>
+    <div id="hhBody"></div>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -413,6 +434,26 @@
     var p=String(dateStr).split('-').map(Number);
     var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return p[2]+' '+months[p[1]-1]+' '+p[0];
+  }
+
+  /* ---------------- Savings Tracker (Phase 6) ----------------
+     "₹ saved" = flat discount amounts summed over coupons actually
+     marked used. Percent-off offers can't be turned into rupees
+     without an order value, so they contribute nothing.           */
+  function parseSavedAmount(text){
+    if(!text) return 0;
+    var m=String(text).match(/(?:₹|rs\.?\s*|\$)\s*([\d,]+(?:\.\d+)?)/i);
+    if(!m) return 0;
+    var n=parseFloat(m[1].replace(/,/g,''));
+    return isNaN(n)?0:n;
+  }
+  function totalSaved(){
+    return state.coupons.reduce(function(sum,c){
+      return sum+(c.used?parseSavedAmount(c.discount_text):0);
+    },0);
+  }
+  function fmtMoney(n){
+    return n.toLocaleString('en-IN');
   }
 
   /* ---------------- Supabase & Hybrid Storage ---------------- */
@@ -728,6 +769,8 @@
     var soon=live.filter(function(c){ return statusOf(c)==='soon'; }).length;
     var html='<strong>'+live.length+'</strong> live coupon'+(live.length===1?'':'s');
     if(soon) html+=' · <span class="warn">'+soon+' expiring within 7 days</span>';
+    var saved=totalSaved();
+    if(saved>0) html+=' · <strong>₹'+fmtMoney(saved)+'</strong> saved';
     statsEl.innerHTML=html;
   }
 
@@ -761,7 +804,7 @@
         (c.discount_text?'<p class="discount">'+esc(c.discount_text)+badges+'</p>':(badges?'<p class="discount">'+badges+'</p>':''))+
         (c.notes?'<p class="notes">'+esc(c.notes)+'</p>':'')+
         '<div class="details-bottom">'+
-          '<span class="days-left">'+daysLabel(c)+'</span>'+
+          '<span class="days-left">'+daysLabel(c)+(c.used_by?' <span class="badge">by '+esc(c.used_by)+'</span>':'')+'</span>'+
           '<div class="actions">'+
             (c.redeem_url?'<a class="icon-btn" href="'+esc(c.redeem_url)+'" target="_blank" rel="noopener noreferrer" title="Open site">'+ICONS.link+'</a>':'')+
             '<button class="icon-btn" data-action="calendar" title="Add reminders to calendar">'+ICONS.cal+'</button>'+
@@ -1021,12 +1064,27 @@
 
     if(action==='use'){
       if(c.reusable){ toast('This one is marked reusable, so it stays in your wallet'); return; }
-      c.used=true; c.used_at=new Date().toISOString(); c.updated_at=c.used_at;
-      dbPut(c).then(function(){ render(); toast('Marked as used'); });
+      var finishUse=function(usedBy){
+        c.used=true; c.used_at=new Date().toISOString(); c.updated_at=c.used_at;
+        c.used_by=usedBy||null;
+        dbPut(c).then(function(){ render(); toast('Marked as used'+(usedBy?' by '+usedBy:'')); });
+      };
+      // Only ask who used it when the wallet is actually shared —
+      // solo users shouldn't pay an extra tap for a field they don't need.
+      if(hhActiveMembers()>1){
+        var last=(localStorage.getItem('cw_last_used_by')||'').trim();
+        var name=prompt('Who used it?',last);
+        if(name===null) return;
+        name=name.trim();
+        if(name) localStorage.setItem('cw_last_used_by',name);
+        finishUse(name);
+      }else{
+        finishUse(null);
+      }
       return;
     }
     if(action==='unuse'){
-      c.used=false; c.used_at=null; c.updated_at=new Date().toISOString();
+      c.used=false; c.used_at=null; c.used_by=null; c.updated_at=new Date().toISOString();
       dbPut(c).then(function(){ render(); toast('Put back in your wallet'); });
       return;
     }
@@ -1081,6 +1139,7 @@
       if (confirm('Sign out from cloud wallet?')) {
         supabaseClient.auth.signOut().then(function(){
           supabaseUser = null;
+          currentHousehold = null;
           updateAuthUI();
           dbAll().then(function(rows){ state.coupons = rows; render(); });
           toast('Signed out from cloud wallet');
@@ -1151,12 +1210,14 @@
       if (res.data && res.data.session) {
         supabaseUser = res.data.session.user;
         updateAuthUI();
+        syncHousehold();
       }
     });
 
     supabaseClient.auth.onAuthStateChange(function(event, session){
       supabaseUser = session ? session.user : null;
       updateAuthUI();
+      syncHousehold();
       if (session) {
         migrateLocalToCloud().then(function(count){
           if (count > 0) toast('Synced ' + count + ' local coupon(s) to your cloud wallet!');
@@ -1341,6 +1402,196 @@
       aiFormError.hidden = false;
       aiFormError.textContent = 'Could not extract fields: ' + (err.message || err);
     });
+  });
+
+  /* ---------------- Household Wallet (Phase 6) ---------------- */
+  var hhBackdrop = $('hhModalBackdrop');
+  var hhBtn = $('hhBtn');
+  var hhBody = $('hhBody');
+  var hhFormError = $('hhFormError');
+  var currentHousehold = null;
+
+  function hhActiveMembers(){
+    return ((currentHousehold&&currentHousehold.members)||[]).filter(function(m){ return m.status==='active'; }).length;
+  }
+  function hhIsOwner(){
+    return !!(supabaseUser && currentHousehold && supabaseUser.id===currentHousehold.owner_id);
+  }
+
+  function openHhModal(){ renderHouseholdUI(); hhBackdrop.hidden=false; }
+  function closeHhModal(){ hhBackdrop.hidden=true; }
+
+  hhBtn.addEventListener('click', openHhModal);
+  hhBackdrop.addEventListener('click', function(e){ if(e.target===hhBackdrop) closeHhModal(); });
+
+  function fetchHousehold(){
+    if(!supabaseClient || !supabaseUser){ currentHousehold=null; return Promise.resolve(null); }
+    return supabaseClient.from('households').select('*').limit(1)
+      .then(function(res){
+        if(res.error || !res.data || !res.data.length){ currentHousehold=null; return null; }
+        currentHousehold=res.data[0];
+        return supabaseClient.from('household_members')
+          .select('*').eq('household_id',currentHousehold.id).order('invited_at')
+          .then(function(mres){
+            currentHousehold.members=mres.data||[];
+            return currentHousehold;
+          });
+      })
+      .catch(function(){ currentHousehold=null; return null; });
+  }
+
+  // Invitee flow: on sign-in, any pending invite addressed to this email
+  // is claimed automatically — no invite code to copy around.
+  function claimPendingInvites(){
+    if(!supabaseClient || !supabaseUser) return Promise.resolve(0);
+    return supabaseClient.from('household_members')
+      .select('id').eq('email',supabaseUser.email).eq('status','pending')
+      .then(function(res){
+        if(res.error || !res.data || !res.data.length) return 0;
+        return Promise.all(res.data.map(function(row){
+          return supabaseClient.from('household_members')
+            .update({ user_id: supabaseUser.id, status: 'active' })
+            .eq('id', row.id);
+        })).then(function(){ return res.data.length; });
+      })
+      .catch(function(){ return 0; });
+  }
+
+  // Called after auth state settles: claim invites, then load the household.
+  function syncHousehold(){
+    if(!supabaseUser){ currentHousehold=null; return Promise.resolve(); }
+    return claimPendingInvites().then(function(claimed){
+      if(claimed>0) toast('Joined your shared household wallet!');
+      return fetchHousehold();
+    });
+  }
+
+  function hhFail(msg){
+    hhFormError.textContent=msg;
+    hhFormError.hidden=false;
+  }
+
+  function renderHouseholdUI(){
+    hhBody.innerHTML='';
+    hhFormError.hidden=true;
+
+    if(!supabaseClient || !supabaseUser){
+      hhBody.innerHTML='<p class="modal-sub">Sign in first — household sharing runs on your cloud wallet. Local-only coupons stay on this device.</p>'+
+        '<div class="modal-actions"><button type="button" class="btn primary" id="hhGoAuth">Sign in</button></div>';
+      $('hhGoAuth').addEventListener('click',function(){ closeHhModal(); openAuthModal(); });
+      return;
+    }
+
+    if(!currentHousehold){
+      hhBody.innerHTML='<form id="hhCreateForm">'+
+        '<label>Name your household <span class="hint">(e.g. Sharma Home)</span>'+
+          '<input id="hhName" placeholder="My Household" autocomplete="off"></label>'+
+        '<div class="modal-actions"><button type="submit" class="btn primary">Create household</button></div>'+
+      '</form>';
+      $('hhCreateForm').addEventListener('submit',function(e){
+        e.preventDefault();
+        if(!supabaseClient||!supabaseUser) return;
+        var name=($('hhName').value||'').trim()||'My Household';
+        supabaseClient.from('households').insert({ name: name })
+          .then(function(res){
+            if(res.error){ hhFail(res.error.message); return; }
+            toast('Household created — now invite your family');
+            return fetchHousehold().then(renderHouseholdUI);
+          })
+          .catch(function(err){ hhFail(err.message||'Could not create household'); });
+      });
+      return;
+    }
+
+    var members=currentHousehold.members||[];
+    var rows=members.map(function(m){
+      var bits=[];
+      if(m.role==='owner') bits.push('owner');
+      else bits.push(m.status==='pending'?'invite pending':'member');
+      var actionBtn='';
+      if(isOwner() && m.role!=='owner'){
+        actionBtn='<button type="button" class="btn ghost" data-hh-action="remove" data-member-id="'+esc(m.id)+'">Remove</button>';
+      }else if(m.role!=='owner' && supabaseUser && m.user_id===supabaseUser.id){
+        actionBtn='<button type="button" class="btn ghost" data-hh-action="leave">Leave</button>';
+      }
+      return '<div class="hh-member">'+
+        '<span class="who">'+esc(m.email)+'<span class="hint">'+esc(bits.join(' · '))+'</span></span>'+
+        actionBtn+'</div>';
+    }).join('');
+
+    hhBody.innerHTML=
+      '<h3 style="font-family:\'Space Grotesk\',sans-serif;font-size:16px;margin:0 0 2px;">'+esc(currentHousehold.name)+'</h3>'+
+      '<p class="modal-sub" style="margin-bottom:8px;">Forward any coupon email to this address and it lands in the shared wallet, parsed:</p>'+
+      '<div class="hh-fwd">wallet+'+esc(currentHousehold.inbound_token)+'@your-domain.com</div>'+
+      rows+
+      '<form id="hhInviteForm" style="margin-top:14px;">'+
+        '<label>Invite by email <input id="hhInviteEmail" type="email" required placeholder="partner@example.com" autocomplete="off"></label>'+
+        '<div class="modal-actions"><button type="submit" class="btn primary">Send invite</button></div>'+
+      '</form>'+
+      (isOwner()
+        ?'<div class="modal-actions" style="justify-content:flex-start;margin-top:10px;">'+
+           '<button type="button" class="btn danger" data-hh-action="close-household">Close household</button></div>'
+        :'');
+
+    $('hhInviteForm').addEventListener('submit',function(e){
+      e.preventDefault();
+      var email=($('hhInviteEmail').value||'').trim().toLowerCase();
+      if(!email||!currentHousehold) return;
+      supabaseClient.from('household_members')
+        .insert({ household_id: currentHousehold.id, email: email, role: 'member', status: 'pending' })
+        .then(function(res){
+          if(res.error){ hhFail(res.error.message); return; }
+          // Best-effort delivery; the invite is claimable regardless.
+          try{
+            supabaseClient.functions.invoke('household-invite',{ body:{
+              invitee_email: email,
+              household_name: currentHousehold.name,
+              inviter_email: supabaseUser.email
+            }});
+          }catch(_e){}
+          toast('Invited '+email+' — they join automatically when they sign in');
+          $('hhInviteEmail').value='';
+          return fetchHousehold().then(renderHouseholdUI);
+        })
+        .catch(function(err){ hhFail(err.message||'Could not send invite'); });
+    });
+  }
+
+  hhBody.addEventListener('click',function(e){
+    var btn=e.target.closest('[data-hh-action]');
+    if(!btn || !supabaseClient) return;
+    var act=btn.dataset.hhAction;
+
+    if(act==='remove'){
+      supabaseClient.from('household_members').delete().eq('id',btn.dataset.memberId)
+        .then(function(res){
+          if(res.error){ hhFail(res.error.message); return; }
+          return fetchHousehold().then(renderHouseholdUI);
+        });
+      return;
+    }
+    if(act==='leave'){
+      if(!confirm('Leave this household? You keep coupons you added, but lose access to the rest.')) return;
+      supabaseClient.from('household_members').delete().eq('user_id',supabaseUser.id).eq('role','member')
+        .then(function(){
+          currentHousehold=null;
+          closeHhModal();
+          toast('You left the household');
+          return dbAll().then(function(rows){ state.coupons=rows; render(); });
+        });
+      return;
+    }
+    if(act==='close-household'){
+      if(!confirm('Close the household? Members lose access to shared coupons immediately.')) return;
+      supabaseClient.from('households').delete().eq('id',currentHousehold.id)
+        .then(function(res){
+          if(res.error){ hhFail(res.error.message); return; }
+          currentHousehold=null;
+          closeHhModal();
+          toast('Household closed');
+          return dbAll().then(function(rows){ state.coupons=rows; render(); });
+        });
+    }
   });
 
   /* ---------------- init ---------------- */

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Coupon Wallet — Settings</title>
+<style>
+  body{
+    margin:0; padding:28px 22px; max-width:520px; margin-inline:auto;
+    background:#1B2430; color:#F6F1E4;
+    font-family:-apple-system,'Segoe UI',sans-serif; font-size:13.5px; line-height:1.55;
+  }
+  h1{ font-size:19px; margin:0 0 6px; }
+  p.sub{ color:rgba(246,241,228,0.65); font-size:12.5px; margin:0 0 20px; }
+  .card{ background:#232D3B; border-radius:12px; padding:18px; margin-bottom:14px; }
+  .state{ font-weight:700; }
+  .state.on{ color:#7FC8A9; }
+  .state.off{ color:#E0A458; }
+  ol{ margin:10px 0 0; padding-left:20px; }
+  li{ margin-bottom:6px; }
+  .btn{
+    background:#F6F1E4; color:#241F16; border:none; border-radius:8px;
+    padding:10px 16px; font-weight:600; font-size:13px; cursor:pointer;
+  }
+  .btn:hover{ background:#EDE6D3; }
+  .btn.ghost{ background:none; color:rgba(246,241,228,0.65); text-decoration:underline; font-weight:400; padding:6px 2px; }
+  .msg{ margin-top:12px; font-size:12.5px; min-height:18px; }
+  .msg.err{ color:#E8837B; }
+  .msg.ok{ color:#7FC8A9; }
+</style>
+</head>
+<body>
+<h1>🎟 Coupon Wallet for Chrome</h1>
+<p class="sub">Shows a badge with your unused coupons whenever you're on a matching retailer's site.</p>
+
+<div class="card">
+  <div>Status: <span id="connState" class="state off">not connected</span></div>
+  <div id="userLine" style="font-size:12px;color:rgba(246,241,228,0.6);margin-top:4px;"></div>
+  <div style="margin-top:14px;">
+    <button id="connectBtn" class="btn">🔌 Connect</button>
+    <button id="disconnectBtn" class="btn ghost" hidden>Disconnect</button>
+  </div>
+  <div id="msg" class="msg"></div>
+</div>
+
+<div class="card">
+  <strong>How connecting works</strong>
+  <ol>
+    <li>The extension borrows the sign-in from the Coupon Wallet web app — no second account, no passwords.</li>
+    <li>Click <em>Connect</em>: your wallet opens in a tab. Make sure you're signed in there (☁️ button).</li>
+    <li>This page picks up the session automatically within ~30 seconds.</li>
+  </ol>
+</div>
+
+<script src="options.js"></script>
+</body>
+</html>
