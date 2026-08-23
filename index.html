@@ -1232,8 +1232,40 @@
     });
   }
 
-  /* ---------------- Web Push Handler ---------------- */
+  /* ---------------- Web Push Handler ----------------
+     Subscriptions need a VAPID public key that matches the server's
+     private signing key — a mismatched key subscribes fine but no push
+     can ever be delivered. Resolution order:
+       1. previously saved copy in localStorage
+       2. GET the send-push-nudges Edge Function (it owns the secrets)
+       3. manual paste (self-hosted deployments without the function)  */
   var pushBtn = $('pushBtn');
+
+  function urlBase64ToUint8Array(base64String){
+    var padding='='.repeat((4-base64String.length%4)%4);
+    var base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');
+    var raw=window.atob(base64);
+    var out=new Uint8Array(raw.length);
+    for(var i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+    return out;
+  }
+
+  function fetchVapidPublicKey(){
+    if(!supabaseClient) return Promise.resolve(null);
+    return supabaseClient.functions.invoke('send-push-nudges',{ method:'GET' })
+      .then(function(res){
+        if(res.error || !res.data || !res.data.publicKey) throw new Error('no key');
+        localStorage.setItem('cw_vapid_public',res.data.publicKey);
+        return res.data.publicKey;
+      })
+      .catch(function(){ return localStorage.getItem('cw_vapid_public'); });
+  }
+
+  function resolveVapidKey(){
+    var saved=localStorage.getItem('cw_vapid_public');
+    if(saved) return Promise.resolve(saved);
+    return fetchVapidPublicKey();
+  }
 
   function updatePushUI(){
     if (!('Notification' in window)) {
@@ -1254,38 +1286,53 @@
       toast('Web Push is not supported on this browser.');
       return;
     }
+    if (!supabaseClient) {
+      toast('Sign in first — your subscription is saved to your cloud wallet.');
+      openAuthModal();
+      return;
+    }
 
     Notification.requestPermission().then(function(permission){
       updatePushUI();
-      if (permission === 'granted') {
-        navigator.serviceWorker.ready.then(function(reg){
+      if (permission !== 'granted') {
+        if (permission === 'denied') toast('Push notifications blocked in browser settings.');
+        return;
+      }
+      resolveVapidKey().then(function(vapidKey){
+        if (!vapidKey) {
+          vapidKey = prompt(
+            'Could not fetch the VAPID public key from your Supabase project.\n'+
+            'Set the VAPID_PUBLIC_KEY secret (see scripts/generate-vapid-keys.mjs), '+
+            'or paste the public key here:'
+          );
+          if(!vapidKey){ toast('Push setup cancelled — no VAPID key available.'); return; }
+          vapidKey=vapidKey.trim();
+          localStorage.setItem('cw_vapid_public',vapidKey);
+        }
+        return navigator.serviceWorker.ready.then(function(reg){
           return reg.pushManager.getSubscription().then(function(sub){
             if (sub) return sub;
-            // Generate or subscribe with VAPID key
-            var dummyVapid = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgTzkrxw_3-q4Z0X_Y123'; // VAPID Public Key
             return reg.pushManager.subscribe({
               userVisibleOnly: true,
-              applicationServerKey: dummyVapid
-            }).catch(function(){ return null; });
+              applicationServerKey: urlBase64ToUint8Array(vapidKey)
+            });
           });
         }).then(function(subscription){
-          if (subscription && supabaseUser && supabaseClient) {
-            var subJson = subscription.toJSON();
-            supabaseClient.from('push_subscriptions').upsert({
-              user_id: supabaseUser.id,
-              endpoint: subscription.endpoint,
-              p256dh: subJson.keys ? subJson.keys.p256dh : '',
-              auth: subJson.keys ? subJson.keys.auth : ''
-            }).then(function(){
-              toast('Browser push notifications enabled!');
-            });
-          } else {
+          if (!subscription) { toast('Could not create a push subscription.'); return; }
+          var subJson = subscription.toJSON();
+          return supabaseClient.from('push_subscriptions').upsert({
+            user_id: supabaseUser.id,
+            endpoint: subscription.endpoint,
+            p256dh: subJson.keys ? subJson.keys.p256dh : '',
+            auth: subJson.keys ? subJson.keys.auth : ''
+          }).then(function(res){
+            if (res.error) { toast('Subscription saved locally but not synced: '+res.error.message); return; }
             toast('Browser push notifications enabled!');
-          }
+          });
+        }).catch(function(err){
+          toast('Push enable failed: '+(err.message||err));
         });
-      } else if (permission === 'denied') {
-        toast('Push notifications blocked in browser settings.');
-      }
+      });
     });
   }
 

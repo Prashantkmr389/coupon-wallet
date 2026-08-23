@@ -18,7 +18,7 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 | **Cloud Sync & Magic Link Auth (Phase 2)** | Sync coupons across phone and laptop via Supabase Postgres + passwordless magic-link sign in |
 | **1-Click Local to Cloud Migration** | Automatically syncs local IndexedDB coupons to your cloud account upon sign-in |
 | **Weekly Email Digest (Phase 3)** | Scheduled Supabase Edge Function sends a Monday 9am email summarizing coupons expiring within 7 days |
-| **Browser Web Push Nudges (Phase 3)** | Receive native browser push notifications when coupons are due |
+| **Browser Web Push Nudges (Phase 3)** | Daily push the day before expiry — the service worker computes live counts from your local wallet, no payload encryption needed |
 | **AI Coupon Capture (Phase 4)** | Paste an SMS/email → Edge Function (Claude) extracts fields and prefills the form; offline rule-based fallback |
 | **Shared Household Wallet (Phase 6)** | Invite family by email; everyone sees the same coupons via RLS-filtered access |
 | **₹-Saved Tracker (Phase 6)** | Running total of flat discounts across used coupons, shown in the stats line |
@@ -45,8 +45,10 @@ supabase/functions/weekly-digest/      Supabase Edge Function for Monday 9am ema
 supabase/functions/parse-coupon/       Supabase Edge Function for AI coupon capture
 supabase/functions/inbound-coupon/     Supabase Edge Function: forwarding-email webhook → parsed coupon
 supabase/functions/household-invite/   Supabase Edge Function: invite emails via Resend
+supabase/functions/send-push-nudges/   Supabase Edge Function: daily VAPID-signed Web Push nudges
+scripts/generate-vapid-keys.mjs        One-time Web Push keypair generator (zero deps)
 extension/                              Chrome MV3 extension (badge on matching retailer tabs)
-tests/                                  Automated test suites (14 test files)
+tests/                                  Automated test suites (15 test files)
 icon-192.png                            home screen icon
 icon-512.png                            splash / store icon
 icon-maskable-512.png                   Android adaptive icon
@@ -66,10 +68,19 @@ To enable cloud sync, notifications and the household wallet:
    supabase functions deploy parse-coupon      # set ANTHROPIC_API_KEY for AI extraction
    supabase functions deploy inbound-coupon    # set as your email provider's inbound webhook
    supabase functions deploy household-invite  # optional; needs RESEND_API_KEY to actually send
+   supabase functions deploy send-push-nudges  # daily Web Push for coupons expiring tomorrow
    ```
-4. In the app, click **☁️ Sync (Sign In)** and enter your Supabase Project URL, Anon Key, and Email.
-5. Click **🔔 Push Nudges** to enable browser push notifications!
-6. Click **👨‍👩‍👧 Household** to create a shared wallet and invite family members — invites are claimed automatically when the invitee signs in with the invited address.
+4. **Enable real push delivery** (the 🔔 button subscribes against these keys — without them pushes can't be sent):
+   ```bash
+   node scripts/generate-vapid-keys.mjs          # prints a fresh P-256 VAPID pair
+   supabase secrets set \
+     VAPID_PUBLIC_KEY=<public key> \
+     VAPID_PRIVATE_KEY=<private key> \
+     PUSH_SUBJECT=mailto:you@example.com         # private key stays server-side, always
+   ```
+5. In the app, click **☁️ Sync (Sign In)** and enter your Supabase Project URL, Anon Key, and Email.
+6. Click **🔔 Push Nudges** to enable browser push notifications! The public key is fetched from the `send-push-nudges` function automatically.
+7. Click **👨‍👩‍👧 Household** to create a shared wallet and invite family members — invites are claimed automatically when the invitee signs in with the invited address.
 
 ### Forwarding email setup
 
