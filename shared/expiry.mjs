@@ -4,6 +4,9 @@
 
 export function daysUntil(dateStr, now) {
   var p = String(dateStr).split('-').map(Number);
+  // Garbage/missing dates get a sentinel rather than NaN so status math
+  // stays boolean-clean: such coupons triage as expired ("needs attention")
+  // and the label reads 'No valid expiry' instead of leaking the number.
   if (!p[0]) return -9999;
   var exp = Date.UTC(p[0], p[1] - 1, p[2]);
   var n = now || new Date();
@@ -34,6 +37,7 @@ export function stampFor(s) {
 export function daysLabel(c, now) {
   if (c.used && !c.reusable) return 'Marked used';
   var d = daysUntil(c.expiry_date, now);
+  if (d === -9999) return 'No valid expiry';
   if (d < 0) return 'Expired ' + Math.abs(d) + 'd ago';
   if (d === 0) return 'Expires today';
   if (d === 1) return '1 day left';

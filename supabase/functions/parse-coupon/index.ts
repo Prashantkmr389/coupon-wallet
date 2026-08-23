@@ -6,17 +6,6 @@ import { parseTextRuleBased } from "../../../shared/coupon-parser.mjs";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || Deno.env.get("GEMINI_API_KEY") || Deno.env.get("OPENAI_API_KEY");
 
-interface ParsedCoupon {
-  brand: string;
-  code: string;
-  discount_text: string;
-  min_order_value: number | null;
-  category: string;
-  source_app: string;
-  expiry_date: string;
-  notes: string;
-}
-
 serve(async (req) => {
   try {
     const { text, image_base64 } = await req.json();

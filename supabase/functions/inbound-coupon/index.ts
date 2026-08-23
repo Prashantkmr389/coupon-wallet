@@ -13,17 +13,6 @@ import { parseTextRuleBased } from "../../../shared/coupon-parser.mjs";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-interface ParsedCoupon {
-  brand: string;
-  code: string;
-  discount_text: string;
-  min_order_value: number | null;
-  category: string;
-  source_app: string;
-  expiry_date: string;
-  notes: string;
-}
-
 // Crude HTML → text so web-format mails still hit the parser.
 function htmlToText(html: string): string {
   return html

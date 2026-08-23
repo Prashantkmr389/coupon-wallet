@@ -359,7 +359,7 @@
 </div>
 
 <script type="module">
-import { daysUntil, getExpireStatus, statusOf, stampFor, daysLabel, fmtDate } from './shared/expiry.mjs';
+import { daysUntil, statusOf, stampFor, daysLabel, fmtDate } from './shared/expiry.mjs';
 import { parseSavedAmount, totalSaved, fmtMoney } from './shared/savings.mjs';
 import { buildICS } from './shared/ics.mjs';
 import { parseTextRuleBased } from './shared/coupon-parser.mjs';
@@ -407,7 +407,7 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
     var n=new Date();
     return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
   }
-  // daysUntil / getExpireStatus / statusOf / stampFor / daysLabel / fmtDate
+  // daysUntil / statusOf / stampFor / daysLabel / fmtDate
   // are imported from shared/expiry.mjs.
 
   /* ---------------- Savings Tracker ----------------

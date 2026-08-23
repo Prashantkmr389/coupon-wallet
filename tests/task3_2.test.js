@@ -40,14 +40,20 @@ async function runTests() {
     assert(Buffer.byteLength(l, 'utf8') <= 75, `Line length must be <= 75 octets: ${l}`);
   });
 
-  // 4. Escaping: commas/semicolons/newlines in user text must not break structure
+  // 4. Escaping: commas/semicolons/newlines in user text must not break structure —
+  //    but only TEXT values. RFC 5545 URI values (URL:) stay raw or clients
+  //    receive corrupted links.
   const hostile = {
     id: "h1", brand: "A,B;C", code: "X1", expiry_date: "2026-09-01",
-    notes: "line one\nline two"
+    notes: "line one\nline two",
+    redeem_url: "https://shop.example/search?q=off,sale;tag=deal"
   };
   const h = buildICS([hostile], now);
-  assert(h.includes("A\\,B\\;C"), "commas and semicolons must be escaped");
+  assert(h.includes("A\\,B\\;C"), "commas and semicolons must be escaped in TEXT values");
   assert(h.includes("line one\\nline two"), "newlines must be escaped");
+  assert(h.includes("URL:https://shop.example/search?q=off,sale;tag=deal"),
+    "URL property must be emitted raw (URI value type)");
+  assert(!h.includes("URL:https://shop.example/search\\,q"), "URL must not be backslash-escaped");
   assert.strictEqual((h.match(/BEGIN:VEVENT/g) || []).length, 1, "escaped newline must not split the event");
 
   // 5. fold() keeps emoji surrogate pairs intact across folds

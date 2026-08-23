@@ -60,7 +60,7 @@ export function vevent(c, now) {
     fold('DESCRIPTION:' + icsEscape(descParts.join('\n'))),
     'TRANSP:TRANSPARENT'
   ];
-  if (c.redeem_url) lines.push(fold('URL:' + icsEscape(c.redeem_url)));
+  if (c.redeem_url) lines.push(fold('URL:' + c.redeem_url)); // URI value type: never backslash-escaped, unlike TEXT
 
   [['-P7D', '7 days left'], ['-P1D', 'Expires tomorrow'], ['PT0S', 'Expires today']].forEach(function (a) {
     lines.push('BEGIN:VALARM', 'ACTION:DISPLAY',
