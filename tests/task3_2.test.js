@@ -1,70 +1,10 @@
 const assert = require('assert');
 
-function byteLen(s) {
-  return (typeof TextEncoder !== 'undefined') ? new TextEncoder().encode(s).length
-                                            : Buffer.byteLength(s, 'utf8');
-}
-
-function fold(line) {
-  if (byteLen(line) <= 75) return line;
-  var out = '', cur = '', limit = 75, pieces = [];
-  for (var i = 0; i < line.length; i++) {
-    var ch = line[i];
-    if (ch.charCodeAt(0) >= 0xD800 && ch.charCodeAt(0) <= 0xDBFF && i + 1 < line.length) {
-      ch += line[++i];
-    }
-    if (byteLen(cur + ch) > limit) {
-      pieces.push(cur);
-      cur = ch;
-      limit = 74;
-    } else cur += ch;
-  }
-  pieces.push(cur);
-  out = pieces[0];
-  for (var j = 1; j < pieces.length; j++) out += '\r\n ' + pieces[j];
-  return out;
-}
-
-function vevent(c) {
-  var d = String(c.expiry_date).replace(/-/g, '');
-  var summary = 'Coupon expires: ' + c.brand + ' (' + c.code + ')';
-  var descParts = [];
-  if (c.discount_text) descParts.push(c.discount_text);
-  if (c.min_order_value) descParts.push('Min order: Rs ' + c.min_order_value);
-  descParts.push('Code: ' + c.code);
-  if (c.source_app) descParts.push('From: ' + c.source_app);
-  if (c.notes) descParts.push(c.notes);
-  if (c.redeem_url) descParts.push(c.redeem_url);
-
-  var lines = [
-    'BEGIN:VEVENT',
-    'UID:' + c.id + '@coupon-wallet',
-    'DTSTAMP:20260815T120000Z',
-    'DTSTART:' + d + 'T090000',
-    'DTEND:' + d + 'T093000',
-    fold('SUMMARY:' + summary),
-    fold('DESCRIPTION:' + descParts.join('\n')),
-    'TRANSP:TRANSPARENT'
-  ];
-
-  [['-P7D', '7 days left'], ['-P1D', 'Expires tomorrow'], ['PT0S', 'Expires today']].forEach(function(a) {
-    lines.push('BEGIN:VALARM', 'ACTION:DISPLAY',
-      fold('DESCRIPTION:' + c.brand + ' coupon ' + c.code + ' — ' + a[1]),
-      'TRIGGER:' + a[0], 'END:VALARM');
-  });
-  lines.push('END:VEVENT');
-  return lines;
-}
-
-function buildICS(coupons) {
-  var out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Coupon Wallet//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
-  coupons.forEach(function(c) { out = out.concat(vevent(c)); });
-  out.push('END:VCALENDAR');
-  return out.join('\r\n');
-}
-
-function runTests() {
+async function runTests() {
   console.log("Running Task 3.2 tests...");
+
+  // Exercise the app's REAL ICS builder (shared/ics.mjs).
+  const { buildICS, fold, byteLen, icsEscape } = await import('../shared/ics.mjs');
 
   const coupon = {
     id: "coupon-123",
@@ -78,27 +18,58 @@ function runTests() {
     redeem_url: "https://amazon.in/checkout"
   };
 
-  const icalStr = buildICS([coupon]);
+  const now = new Date("2026-08-15T12:00:00Z"); // deterministic DTSTAMP
+  const icalStr = buildICS([coupon], now);
 
-  // 1. Check VCALENDAR markers
+  // 1. VCALENDAR structure
   assert(icalStr.includes("BEGIN:VCALENDAR"), "Must contain BEGIN:VCALENDAR");
   assert(icalStr.includes("END:VCALENDAR"), "Must contain END:VCALENDAR");
   assert(icalStr.includes("BEGIN:VEVENT"), "Must contain BEGIN:VEVENT");
+  assert(icalStr.includes("DTSTAMP:20260815T120000Z"), "DTSTAMP must come from the injected clock");
 
-  // 2. Check 3 VALARM triggers
+  // 2. Exactly 3 VALARM triggers with the right offsets
   const alarmCount = (icalStr.match(/BEGIN:VALARM/g) || []).length;
   assert.strictEqual(alarmCount, 3, "Must have exactly 3 VALARM blocks");
   assert(icalStr.includes("TRIGGER:-P7D"), "Must contain -P7D alarm trigger");
   assert(icalStr.includes("TRIGGER:-P1D"), "Must contain -P1D alarm trigger");
   assert(icalStr.includes("TRIGGER:PT0S"), "Must contain PT0S alarm trigger");
 
-  // 3. Verify line byte length folding (no line exceeds 75 octets)
+  // 3. RFC 5545 folding: no physical line exceeds 75 octets (₹ is 3 bytes)
   const lines = icalStr.split(/\r?\n/);
   lines.forEach(l => {
     assert(Buffer.byteLength(l, 'utf8') <= 75, `Line length must be <= 75 octets: ${l}`);
   });
 
+  // 4. Escaping: commas/semicolons/newlines in user text must not break structure —
+  //    but only TEXT values. RFC 5545 URI values (URL:) stay raw or clients
+  //    receive corrupted links.
+  const hostile = {
+    id: "h1", brand: "A,B;C", code: "X1", expiry_date: "2026-09-01",
+    notes: "line one\nline two",
+    redeem_url: "https://shop.example/search?q=off,sale;tag=deal"
+  };
+  const h = buildICS([hostile], now);
+  assert(h.includes("A\\,B\\;C"), "commas and semicolons must be escaped in TEXT values");
+  assert(h.includes("line one\\nline two"), "newlines must be escaped");
+  assert(h.includes("URL:https://shop.example/search?q=off,sale;tag=deal"),
+    "URL property must be emitted raw (URI value type)");
+  assert(!h.includes("URL:https://shop.example/search\\,q"), "URL must not be backslash-escaped");
+  assert.strictEqual((h.match(/BEGIN:VEVENT/g) || []).length, 1, "escaped newline must not split the event");
+
+  // 5. fold() keeps emoji surrogate pairs intact across folds
+  const emojiLine = "SUMMARY:" + "🎟".repeat(40); // 40 × 4-byte chars → forces folds
+  const folded = fold(emojiLine).split("\r\n ");
+  assert(folded.length > 1, "long emoji line must actually fold");
+  folded.forEach(seg => {
+    assert(!/[\uD800-\uDBFF]$/.test(seg), "folding must never split a surrogate pair mid-way");
+    Buffer.from(seg, 'utf8'); // must remain valid UTF-8
+  });
+  assert.strictEqual(folded.join("").replace(/^SUMMARY:/, '').length, 80, "no characters lost in folding");
+
   console.log("✅ All Task 3.2 tests passed!");
 }
 
-runTests();
+runTests().catch(err => {
+  console.error("❌ Task 3.2 tests failed:", err);
+  process.exit(1);
+});

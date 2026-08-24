@@ -32,6 +32,11 @@ function loadMatchingLogic() {
 async function runTests() {
   console.log("Running Phase 5 Chrome Extension tests...");
 
+  // The extension can't import from the web root (MV3 packaging), so
+  // background.js carries a necessary copy of daysUntil — guard that it
+  // stays behaviourally identical to shared/expiry.mjs.
+  const { daysUntil: sharedDaysUntil } = await import('../shared/expiry.mjs');
+
   // =========== 1. Manifest (MV3) ===========
   const manifest = JSON.parse(read('manifest.json'));
   assert.strictEqual(manifest.manifest_version, 3, "must be a Manifest V3 extension");
@@ -71,6 +76,16 @@ async function runTests() {
   assert.strictEqual(m.api.daysUntil(iso(0)), 0);
   assert.strictEqual(m.api.daysUntil(iso(-1)), -1);
   assert.ok(m.api.daysUntil(iso(7)) <= 7 && m.api.daysUntil(iso(7)) >= 6);
+
+  // Behavioural parity between the extension's copy and the canonical module
+  for (const offset of [-30, -1, 0, 1, 7, 8, 365]) {
+    assert.strictEqual(m.api.daysUntil(iso(offset)), sharedDaysUntil(iso(offset)),
+      `background.js daysUntil diverged from shared/expiry.mjs at +${offset}d`);
+  }
+  for (const garbage of ['', 'not-a-date', '2026-13-99']) {
+    assert.strictEqual(m.api.daysUntil(garbage), sharedDaysUntil(garbage),
+      "garbage-input sentinel must match too");
+  }
 
   assert.strictEqual(m.api.hostOf('https://www.amazon.in/gp/cart'), 'amazon.in');
   assert.strictEqual(m.api.hostOf('not a url'), '');
