@@ -1,4 +1,4 @@
-# Coupon Wallet — Phases 1–6 complete
+# Coupon Wallet — Phases 1–7 complete
 
 A local-first coupon organiser with optional cross-device cloud sync via Supabase, weekly email digest summaries, browser web push notifications, AI-assisted capture, a shared household wallet with a ₹-saved tracker, and a Chrome extension that surfaces coupons while you shop. No complex setup required.
 Coupons live in IndexedDB on the device and sync seamlessly with your Supabase account when signed in; reminders are delegated to your calendar, weekly digest email, and browser push notifications.
@@ -24,13 +24,18 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 | **₹-Saved Tracker (Phase 6)** | Running total of flat discounts across used coupons, shown in the stats line |
 | **Coupon Forwarding Email (Phase 6)** | Mail sent to `wallet+<token>@your-domain.com` is parsed and added to the household wallet automatically |
 | **Chrome Extension (Phase 5)** | Toolbar badge "🎟 N" on matching retailer tabs; popup lists unused coupons with one-click code copy |
+| **Archive instead of hard delete (Phase 7)** | Delete archives (with Undo); 🗃 Archive view restores or deletes forever; ₹-saved keeps counting archived+used coupons |
+| **Clipboard quick-add (Phase 7)** | Open the app with a coupon-looking text on your clipboard → one-tap prefill; only when clipboard permission is already granted, never prompts on launch |
+| **Web Share Target (Phase 7)** | Share an SMS/notification straight into the installed Android PWA → prefilled form; iOS Safari doesn't support `share_target`, so iOS falls back to clipboard quick-add |
 | **Hybrid Storage Adapter** | Operates cloud-first when signed in, falling back gracefully to IndexedDB when offline/guest |
-| JSON export / import | Backup and manual device transfer capability |
+| JSON export / import | Backup and manual device transfer capability (backups now include archived coupons) |
 | Duplicate detection | Warns on same code + same brand; second Save overrides |
 | Reusable flag | Card benefits and recurring offers don't retire when marked used |
 | Edit / mark used / un-use / delete with undo | |
 | Installable PWA | Home screen icon, opens offline |
 | Search + category filter | |
+
+**Phase 7 capture notes:** clipboard quick-add is deliberately opportunistic — it only fires when `clipboard-read` is already granted (mostly installed PWAs on Android/Chromium), never prompts on launch, and ignores bare codes so order IDs don't false-positive. Archiving a coupon leaves any already-exported calendar alarms firing (fire-and-forget); archived household coupons archive for everyone who shares them.
 
 ---
 
@@ -38,8 +43,8 @@ Implements the specification and architecture recorded in `ADR-0001` and `2026-0
 
 ```
 index.html                              the app UI + glue; pure logic lives in shared/*.mjs
-shared/                                 modules imported by the app AND the tests (expiry, savings, ICS, parser)
-manifest.json                           PWA metadata
+shared/                                 modules imported by the app AND the tests (expiry, savings, ICS, parser, capture)
+manifest.json                           PWA metadata (+ GET share_target for Android)
 sw.js                                   service worker (app-shell caching, Web Push event handlers)
 supabase/schema.sql                     Postgres schema (coupons, push_subscriptions, households + RLS)
 supabase/functions/weekly-digest/      Supabase Edge Function for Monday 9am email digests
@@ -49,7 +54,7 @@ supabase/functions/household-invite/   Supabase Edge Function: invite emails via
 supabase/functions/send-push-nudges/   Supabase Edge Function: daily VAPID-signed Web Push nudges
 scripts/generate-vapid-keys.mjs        One-time Web Push keypair generator (zero deps)
 extension/                              Chrome MV3 extension (badge on matching retailer tabs)
-tests/                                  Automated test suites (15 test files)
+tests/                                  Automated test suites (16 test files)
 icon-192.png                            home screen icon
 icon-512.png                            splash / store icon
 icon-maskable-512.png                   Android adaptive icon
@@ -103,7 +108,7 @@ The extension re-syncs every ~20 minutes and refreshes expired tokens on its own
 ## Testing
 
 ```bash
-npm test    # 15 suites, zero network access
+npm test    # 16 suites, zero network access
 ```
 
 Suites import the same `shared/*.mjs` modules the app ships — expiry math, savings totals, ICS generation and the coupon parser are tested as the exact code that runs in production, not copies.
@@ -145,5 +150,6 @@ python3 -m http.server 8000
 - [x] **Phase 4** — paste an SMS/email or screenshot, Claude extracts the fields
 - [x] **Phase 5** — Chrome extension badge when you visit a matching retailer
 - [x] **Phase 6** — shared household wallet, ₹-saved tracker, forwarding address
+- [x] **Phase 7** — archive instead of hard delete, clipboard quick-add, Android Web Share Target
 
 

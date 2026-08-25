@@ -34,6 +34,8 @@ Supabase Dashboard → SQL Editor → paste and run **all** of [`supabase/schema
 
 The file is idempotent (`IF NOT EXISTS` throughout); re-running after upgrades is safe and is how you apply new migrations.
 
+> Upgrading from Phase ≤ 6? Re-run the whole file to pick up the Phase 7 `archived` / `archived_at` columns on `coupons`. No RLS changes — archived rows are the same rows.
+
 Creates: `coupons`, `push_subscriptions`, `households`, `household_members`, indexes, and every RLS policy.
 
 ## 2. Auth
@@ -82,6 +84,8 @@ supabase functions deploy household-invite   # optional
 
 Crons are read from each function's `config.json` at deploy time.
 
+> Phase 7: redeploy **weekly-digest** and **send-push-nudges** after upgrading — both now exclude archived coupons from digests and nudges.
+
 > `parse-coupon` and `inbound-coupon` import the shared parser from
 > `../../../shared/coupon-parser.mjs`. The Supabase CLI bundles relative imports
 > outside the function directory. If your CLI version refuses, copy the file to
@@ -128,6 +132,9 @@ Run through after every fresh deploy:
 | 9 | Forwarding email | curl example above → coupon lands in the wallet tagged source "Email" |
 | 10 | Household | Create household → invite second email → sign in on another profile with that email → invite auto-claims; mark a used coupon with attribution → "by NAME" badge + ₹-saved stat updates |
 | 11 | Extension | Load `extension/` unpacked → Settings → Connect (wallet tab open & signed in) → open amazon.in/makemytrip.com → toolbar badge shows count |
+| 12 | Archive | Delete a used coupon → ₹-saved unchanged, coupon gone from the list but shown under 🗃 Archive (N); Restore brings it back; Delete forever really removes it |
+| 13 | Clipboard quick-add | Copy a coupon SMS in another app (grant clipboard permission when asked) → open the wallet → toast offers "Prefill form"; copying a code from inside the app must NOT trigger it on next open |
+| 14 | Share target | Install the PWA on Android/Chrome → share an SMS from Messages → Coupon Wallet opens with the form prefilled and the shared URL scrubbed. iOS Safari has no `share_target` — clipboard quick-add is the fallback there |
 
 Function URLs for curl: Supabase Dashboard → Edge Functions → each function's detail page.
 
@@ -136,7 +143,7 @@ Function URLs for curl: Supabase Dashboard → Edge Functions → each function'
 ```bash
 python3 -m http.server 8000    # or: npx serve .
 # open http://localhost:8000
-npm test                       # 15 suites, no network needed
+npm test                       # 16 suites, no network needed
 ```
 
 The extension connects to `http://localhost:8000` out of the box (see `extension/options.js`).

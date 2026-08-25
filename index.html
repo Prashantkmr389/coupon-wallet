@@ -63,6 +63,7 @@
     font-size:12px; text-decoration:underline; cursor:pointer;
   }
   .link-btn:hover{ color:var(--paper); }
+  .link-btn.is-active{ color:var(--paper); font-weight:600; }
 
   /* controls */
   .controls{ margin-top:18px; }
@@ -245,6 +246,7 @@
       <button id="pushBtn" class="link-btn">🔔 Push Nudges</button>
       <button id="aiBtn" class="link-btn">✨ AI Capture</button>
       <button id="hhBtn" class="link-btn">👨‍👩‍👧 Household</button>
+      <button id="archiveBtn" class="link-btn" hidden>🗃 Archive</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden>
     </div>
   </header>
@@ -363,6 +365,7 @@ import { daysUntil, statusOf, stampFor, daysLabel, fmtDate } from './shared/expi
 import { parseSavedAmount, totalSaved, fmtMoney } from './shared/savings.mjs';
 import { buildICS } from './shared/ics.mjs';
 import { parseTextRuleBased } from './shared/coupon-parser.mjs';
+import { looksLikeCouponText, combineShareParams } from './shared/capture.mjs';
 
 (function(){
   "use strict";
@@ -379,7 +382,11 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
   var DB_VERSION = 1;
   var STORE = 'coupons';
 
-  var state = { coupons:[], query:'', category:'All' };
+  // showArchived: transient archive-view toggle (not persisted).
+  // lastCopiedCode: the app's own copy button writes codes to the clipboard;
+  // remembering the last one stops the clipboard quick-add from nagging you
+  // to re-add a coupon you already have on your next app open.
+  var state = { coupons:[], query:'', category:'All', showArchived:false, lastCopiedCode:null };
   var db = null;
 
   var $ = function(id){ return document.getElementById(id); };
@@ -648,15 +655,30 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
   }
 
   /* ---------------- rendering ---------------- */
+  // The single gate hiding archived coupons from every default surface —
+  // list, live count, calendar export, duplicate check. totalSaved is
+  // deliberately exempt: ₹-saved keeps counting archived+used coupons.
+  function liveCoupons(){
+    return state.coupons.filter(function(c){ return !c.archived; });
+  }
+
   function renderChips(){
     chipRowEl.innerHTML=['All'].concat(CATEGORIES).map(function(cat){
       return '<button class="chip'+(cat===state.category?' is-active':'')+'" data-cat="'+esc(cat)+'">'+esc(cat)+'</button>';
     }).join('');
   }
 
+  function renderArchiveBtn(){
+    var n=state.coupons.filter(function(c){ return c.archived; }).length;
+    var btn=$('archiveBtn');
+    btn.hidden=(n===0&&!state.showArchived);
+    btn.textContent='🗃 Archive'+(n?' ('+n+')':'');
+    btn.classList[state.showArchived?'add':'remove']('is-active');
+  }
+
   function renderStats(){
     if(!state.coupons.length){ statsEl.innerHTML=''; return; }
-    var live=state.coupons.filter(function(c){ var s=statusOf(c); return s==='active'||s==='soon'; });
+    var live=liveCoupons().filter(function(c){ var s=statusOf(c); return s==='active'||s==='soon'; });
     var soon=live.filter(function(c){ return statusOf(c)==='soon'; }).length;
     var html='<strong>'+live.length+'</strong> live coupon'+(live.length===1?'':'s');
     if(soon) html+=' · <span class="warn">'+soon+' expiring within 7 days</span>';
@@ -697,13 +719,16 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
         '<div class="details-bottom">'+
           '<span class="days-left">'+daysLabel(c)+(c.used_by?' <span class="badge">by '+esc(c.used_by)+'</span>':'')+'</span>'+
           '<div class="actions">'+
-            (c.redeem_url?'<a class="icon-btn" href="'+esc(c.redeem_url)+'" target="_blank" rel="noopener noreferrer" title="Open site">'+ICONS.link+'</a>':'')+
-            '<button class="icon-btn" data-action="calendar" title="Add reminders to calendar">'+ICONS.cal+'</button>'+
-            '<button class="icon-btn" data-action="edit" title="Edit">'+ICONS.edit+'</button>'+
-            ((c.used&&!c.reusable)
-              ?'<button class="icon-btn" data-action="unuse" title="Put back">'+ICONS.undo+'</button>'
-              :'<button class="icon-btn" data-action="use" title="Mark as used">'+ICONS.check+'</button>')+
-            '<button class="icon-btn" data-action="delete" title="Delete">'+ICONS.trash+'</button>'+
+            (c.archived
+              ?'<button class="icon-btn" data-action="restore" title="Restore to wallet">'+ICONS.undo+'</button>'+
+               '<button class="icon-btn" data-action="delete-forever" title="Delete forever">'+ICONS.trash+'</button>'
+              :(c.redeem_url?'<a class="icon-btn" href="'+esc(c.redeem_url)+'" target="_blank" rel="noopener noreferrer" title="Open site">'+ICONS.link+'</a>':'')+
+               '<button class="icon-btn" data-action="calendar" title="Add reminders to calendar">'+ICONS.cal+'</button>'+
+               '<button class="icon-btn" data-action="edit" title="Edit">'+ICONS.edit+'</button>'+
+               ((c.used&&!c.reusable)
+                 ?'<button class="icon-btn" data-action="unuse" title="Put back">'+ICONS.undo+'</button>'
+                 :'<button class="icon-btn" data-action="use" title="Mark as used">'+ICONS.check+'</button>')+
+               '<button class="icon-btn" data-action="delete" title="Delete">'+ICONS.trash+'</button>')+
           '</div>'+
         '</div>'+
       '</div>'+
@@ -717,9 +742,18 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
         '<button class="add-btn" data-action="open-add">+ Add your first coupon</button></div>';
       return;
     }
-    var visible=state.coupons.filter(matches);
+    var pool=state.showArchived
+      ?state.coupons.filter(function(c){ return c.archived; })
+      :liveCoupons();
+    var visible=pool.filter(matches);
     if(!visible.length){
-      listEl.innerHTML='<div class="empty"><p>No coupons match that search or filter.</p></div>';
+      listEl.innerHTML='<div class="empty"><p>'+(state.showArchived?'The archive is empty.':'No coupons match that search or filter.')+'</p></div>';
+      return;
+    }
+    if(state.showArchived){
+      // One flat group — expiry triage makes no sense for archived rows.
+      listEl.innerHTML='<h2 class="section-head">Archived ('+visible.length+')</h2>'+
+        visible.map(ticketHTML).join('');
       return;
     }
 
@@ -740,7 +774,7 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
     }).join('');
   }
 
-  function render(){ renderChips(); renderStats(); renderList(); }
+  function render(){ renderChips(); renderStats(); renderArchiveBtn(); renderList(); }
 
   /* ---------------- modal ---------------- */
   function fillSelect(sel,opts){
@@ -756,7 +790,9 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
       modalTitle.textContent='Edit coupon';
       modalSub.textContent='Update the details — the calendar file will need re-exporting if you change the date.';
       saveBtn.textContent='Save changes';
-      form.id.value=coupon.id;
+      // Guard against undefined coercing to the string "undefined" — an
+      // id-less object here once corrupted every AI-captured coupon.
+      form.id.value=(coupon&&coupon.id)||'';
       form.brand.value=coupon.brand||'';
       form.code.value=coupon.code||'';
       form.discount_text.value=coupon.discount_text||'';
@@ -779,6 +815,18 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
   }
   function closeModal(){ backdrop.hidden=true; }
 
+  /* Prefill entry point for parsed text (AI Capture, clipboard quick-add,
+     share target). The parsed object has no id/used/used_at — opening the
+     modal as "Add" first keeps the submit path on the create branch, so a
+     prefill can never masquerade as an edit of some other coupon. */
+  function openModalPrefilled(parsed){
+    openModal(null);
+    ['brand','code','discount_text','min_order_value','expiry_date',
+     'category','source_app','redeem_url','notes'].forEach(function(k){
+      if(parsed[k]!=null && form[k]) form[k].value=parsed[k];
+    });
+  }
+
   $('addBtn').addEventListener('click',function(){ openModal(null); });
   $('cancelBtn').addEventListener('click',closeModal);
   backdrop.addEventListener('click',function(e){ if(e.target===backdrop) closeModal(); });
@@ -787,7 +835,9 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
   function checkDuplicate(brand, code){
     var b = String(brand || '').trim().toLowerCase();
     var c = String(code || '').trim().toLowerCase();
-    return state.coupons.filter(function(item){
+    // liveCoupons only — an archived coupon must NOT block re-adding the
+    // same code ("archive, then re-add the renewed offer" is a flow).
+    return liveCoupons().filter(function(item){
       return item.brand.toLowerCase() === b && item.code.toLowerCase() === c;
     })[0] || null;
   }
@@ -865,7 +915,7 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
   }
 
   function exportAllToCalendar(){
-    exportCalendar(state.coupons.filter(function(c){
+    exportCalendar(liveCoupons().filter(function(c){
       var s=statusOf(c); return s==='active'||s==='soon';
     }));
   }
@@ -937,7 +987,12 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
       var code=btn.dataset.code;
       if(navigator.clipboard&&navigator.clipboard.writeText){
         navigator.clipboard.writeText(code)
-          .then(function(){ toast('Copied: '+code); })
+          .then(function(){
+            // Self-copy suppression: clipboard quick-add must not offer
+            // this code back to us on the next app open.
+            state.lastCopiedCode=code;
+            toast('Copied: '+code);
+          })
           .catch(function(){ toast('Could not copy — long-press the code instead'); });
       }else{ toast('Could not copy — long-press the code instead'); }
       return;
@@ -980,13 +1035,31 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
       return;
     }
     if(action==='delete'){
-      var removed=state.coupons.splice(idx,1)[0];
-      render();
-      dbDelete(id).then(function(){
-        toast('Coupon deleted','Undo',function(){
-          dbPut(removed).then(function(){ state.coupons.push(removed); render(); });
+      // Archive, don't hard-delete — ₹-saved keeps counting this coupon and
+      // it stays recoverable from the 🗃 Archive view.
+      c.archived=true;
+      c.archived_at=new Date().toISOString();
+      c.updated_at=c.archived_at;
+      dbPut(c).then(function(){
+        render();
+        toast('Coupon archived','Undo',function(){
+          c.archived=false; c.archived_at=null; c.updated_at=new Date().toISOString();
+          dbPut(c).then(function(){ render(); });
         });
       });
+      return;
+    }
+    if(action==='restore'){
+      c.archived=false; c.archived_at=null; c.updated_at=new Date().toISOString();
+      dbPut(c).then(function(){ render(); toast('Restored to your wallet'); });
+      return;
+    }
+    if(action==='delete-forever'){
+      if(confirm('Delete '+c.brand+' \u2014 code '+c.code+' forever? This can\u2019t be undone.')){
+        state.coupons.splice(idx,1);
+        dbDelete(id).then(function(){ render(); toast('Deleted forever'); });
+      }
+      return;
     }
   });
 
@@ -995,6 +1068,12 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
     var chip=e.target.closest('.chip');
     if(!chip) return;
     state.category=chip.dataset.cat;
+    state.showArchived=false;
+    render();
+  });
+
+  $('archiveBtn').addEventListener('click',function(){
+    state.showArchived=!state.showArchived;
     render();
   });
 
@@ -1286,7 +1365,7 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
       $('aiExtractBtn').disabled = false;
       $('aiExtractBtn').textContent = '✨ Extract & Prefill';
       closeAiModal();
-      openModal(extracted);
+      openModalPrefilled(extracted);
       toast('Extracted coupon details! Review and save below.');
     }).catch(function(err){
       $('aiExtractBtn').disabled = false;
@@ -1486,6 +1565,50 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
     }
   });
 
+  /* ---------------- Capture everywhere (Phase 7) ----------------
+     Two extra prefill entry points, both routed through openModalPrefilled:
+
+     Share Target (7C): the installed Android PWA receives shared text as
+     ?title=&text=&url= on a GET to ./index.html. We parse once, scrub the
+     URL immediately (refresh/back must not re-trigger), and open the form.
+     iOS Safari has no share_target — clipboard quick-add is its fallback.
+
+     Clipboard quick-add (7B): on app open, only when clipboard-read is
+     ALREADY granted (never prompt on launch), only when the text passes
+     looksLikeCouponText, and never for a code the app itself just copied. */
+  function handleShareTarget(){
+    try{
+      var p=new URLSearchParams(location.search);
+      var shared=combineShareParams({ title:p.get('title'), text:p.get('text'), url:p.get('url') });
+      if(!shared) return;
+      history.replaceState(null,'',location.pathname);
+      // Explicit intent: even without an extractable code, open prefilled.
+      openModalPrefilled(parseTextRuleBased(shared));
+      toast('Shared text received — review and save');
+    }catch(e){}
+  }
+
+  function offerClipboardQuickAdd(){
+    if(!(navigator.clipboard&&navigator.clipboard.readText)) return;
+    if(!(navigator.permissions&&navigator.permissions.query)) return;
+    navigator.permissions.query({name:'clipboard-read'}).then(function(st){
+      if(st.state!=='granted') return;   // a launch prompt is worse than no feature
+      return navigator.clipboard.readText().then(function(text){
+        text=String(text||'').trim();
+        if(!text||text.length>2000) return;
+        // The app's own copy button wrote this — don't offer it back.
+        if(state.lastCopiedCode && text===String(state.lastCopiedCode).trim()) return;
+        if(!looksLikeCouponText(text)) return;   // bare order IDs stop here
+        var parsed=parseTextRuleBased(text);
+        // Belt-and-braces: already in the wallet (archived excluded)?
+        if(checkDuplicate(parsed.brand,parsed.code)) return;
+        toast('Clipboard looks like a coupon — add it?','Prefill form',function(){
+          openModalPrefilled(parsed);
+        });
+      });
+    }).catch(function(){ /* permission API or read failed — stay silent */ });
+  }
+
   /* ---------------- init ---------------- */
   openDB().then(function(d){
     db=d;
@@ -1495,6 +1618,8 @@ import { parseTextRuleBased } from './shared/coupon-parser.mjs';
     render();
     updateAuthUI();
     updatePushUI();
+    handleShareTarget();
+    offerClipboardQuickAdd();
   }).catch(function(){
     state.coupons=[];
     render();
