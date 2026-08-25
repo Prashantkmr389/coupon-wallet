@@ -215,3 +215,13 @@ CREATE POLICY "Users can delete their own coupons"
       )
     )
   );
+
+-- ============================================================
+-- Phase 7: archive instead of hard delete
+-- ============================================================
+
+-- Archived coupons stay queryable (₹-saved keeps counting them) but are
+-- hidden from the list, stats, exports, digests, pushes and the extension.
+-- Same rows, same policies — no RLS changes.
+ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ DEFAULT NULL;

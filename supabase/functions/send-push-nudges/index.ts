@@ -140,6 +140,7 @@ export async function nudgeUsersForTomorrow(today = new Date()): Promise<{ users
     .from("coupons")
     .select("id, user_id")
     .eq("used", false)
+    .eq("archived", false)
     .eq("expiry_date", iso(tomorrow));
 
   if (error) throw error;

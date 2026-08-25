@@ -96,7 +96,9 @@ async function fetchCoupons() {
       return fetchCoupons();
     }
     if (!res.ok) throw new Error(`coupons fetch failed: ${res.status}`);
-    couponCache = await res.json() || [];
+    // Archived coupons are hidden from every surface, badges included.
+    const rows = await res.json();
+    couponCache = (rows || []).filter(c => !c.archived);
     chrome.storage.session?.set({ coupon_count: String(couponCache.length) });
     return couponCache;
   } catch (err) {

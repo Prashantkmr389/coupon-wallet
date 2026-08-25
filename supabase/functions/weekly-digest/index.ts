@@ -80,6 +80,7 @@ serve(async (req) => {
       .from('coupons')
       .select('*')
       .eq('used', false)
+      .eq('archived', false)
       .gte('expiry_date', todayStr)
       .lte('expiry_date', nextWeekStr);
 

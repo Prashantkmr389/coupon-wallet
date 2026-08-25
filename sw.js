@@ -2,7 +2,7 @@
    App-shell caching only. Coupon data lives in IndexedDB and is
    never cached here — bumping CACHE never touches user data. */
 
-const CACHE = 'coupon-wallet-v2';
+const CACHE = 'coupon-wallet-v3';
 const SHELL = [
   './',
   './index.html',
@@ -12,7 +12,8 @@ const SHELL = [
   './shared/expiry.mjs',
   './shared/savings.mjs',
   './shared/ics.mjs',
-  './shared/coupon-parser.mjs'
+  './shared/coupon-parser.mjs',
+  './shared/capture.mjs'
 ];
 
 self.addEventListener('install', event => {
@@ -101,7 +102,7 @@ function readCoupons(){
 
 function buildReminderPayload(coupons){
   var spendable=coupons.filter(function(c){
-    return c && c.expiry_date && !(c.used && !c.reusable);
+    return c && c.expiry_date && !c.archived && !(c.used && !c.reusable);
   });
   var tomorrow=spendable.filter(function(c){ return daysUntil(c.expiry_date)===1; }).length;
   var week=spendable.filter(function(d){
